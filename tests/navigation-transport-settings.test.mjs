@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {createTransportNumberSlider} from "../scripts/navigation-transport-form-controls.js";
 import { AtlasTransportationSettings,openTransportationMethodEditor,
   renderTravelRules,renderJourneyPlayback } from "../scripts/navigation-transport-settings.js";
 
@@ -334,7 +335,12 @@ test("Group scope uses the actual General/Services/Ownership editor, with hired 
         const ownership=elements.find(el=>el.attributes.get("data-atlas-preset-panel")==="cost");
         const generalText=flatten(general).map(e=>e.textContent??"").join(" ");
         const ownershipText=flatten(ownership).map(e=>e.textContent??"").join(" ");
-        assert.doesNotMatch(generalText,/Required crew/,"Group hides World-owned crew counts");
+        assert.match(generalText,/Passenger seats per unit/);
+        assert.match(generalText,/Required crew per unit/,"Crew requirement is read-only but visible");
+        assert.match(generalText,/World profile/);
+        const crew=elements.find(e=>e.attributes.has("data-atlas-group-crew"));
+        assert.ok(crew,"inherited staffing is presented without editable World fields");
+        assert.match(crew.textContent,/0 required/);
         assert.doesNotMatch(ownershipText,/Available for purchase|Crew wage per person/,
           "already-owned resources cannot change sale offers or crew wages");
         assert.ok(elements.find(el=>el.name==="groupSpeedCustom")?.hidden);
@@ -399,9 +405,21 @@ test("Group editor records touched Map Marker fields as overrides without new vi
           if(match)return elements.find(el=>el.name===match[1])??null;
           if(selector==="[data-atlas-scope-reset]")
             return elements.find(el=>el.attributes.get("data-atlas-scope-reset")!==undefined)??null;
+          if(selector==="[data-atlas-group-crew]")
+            return elements.find(el=>el.attributes.has("data-atlas-group-crew"))??null;
           return null;
         };
         render(null,root);
+        const staffing=root.querySelector("[data-atlas-group-crew]");
+        const profile=elements.find(e=>e.name==="groupProfileId");
+        assert.match(staffing.textContent,/0 required across 3 units/);
+        profile.value="";profile.listeners.get("change")();
+        assert.match(staffing.textContent,/Not configured/);
+        profile.value="camel";profile.listeners.get("change")();
+        assert.match(staffing.textContent,/0 required across 3 units/);
+        const quantity=elements.find(e=>e.name==="groupQuantity");
+        quantity.value="4";root.listeners.get("input")({target:quantity});
+        assert.match(staffing.textContent,/0 required across 4 units/);
         const speedFlag=elements.find(e=>e.name==="groupSpeedCustom");
         const upkeepFlag=elements.find(e=>e.name==="groupCostCustom");
         assert.equal(speedFlag.checked,false,"speed starts World-inherited");
@@ -619,4 +637,168 @@ test("World-inherited mount fare is visible in preset and Map Marker editors wit
     assert.equal(dialogs,2);
     assert.deepEqual(ctx.changes,[],"preview and Cancel do not change World catalogs");
   }finally{globalThis.foundry=previous;ctx.restore();}
+});
+
+test("World crew thresholds expose editable inherited defaults, save explicit values and reject invalid drafts",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry,oldUI=globalThis.ui;
+  try{
+    const {findTransportationPreset,TRANSPORT_CATALOG_SETTING}=await import("../scripts/navigation-transport-catalog.js");
+    const ship=findTransportationPreset("warship",game.settings,"dnd5e");
+    const app=new AtlasTransportationSettings();app.render=async()=>{};
+    globalThis.ui={notifications:{info(){}}};
+    let response=null;
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content})=>{
+      const nodes=flatten(content);
+      for(const [name,expected] of [["crewMinimum","15"],["crewOptimal","30"],["crewExcellent","45"]]){
+        const input=nodes.find(e=>e.name===name);
+        assert.ok(input,name);assert.equal(input.type,"number");
+        assert.equal(input.placeholder,expected);
+        assert.equal(input.value,"","blank inherits the reference threshold");
+      }
+      return response;
+    }}}}};
+    await app._edit(ship,"water");
+    assert.deepEqual(ctx.changes,[]);
+    const base={name:ship.name,kind:ship.kind,speedDisplay:ship.speedMph,
+      capacity:ship.capacity,crewCount:60,costBasis:"none",costApplies:"unit",
+      crewWageBasis:"day",hireBasis:"day",hireApplies:"unit",overtimeExtraHours:8,overtimeMultiplier:1.5};
+    response={...base,crewMinimum:"10",crewOptimal:"25",crewExcellent:"50"};
+    await app._edit(ship,"water");
+    assert.deepEqual(ctx.changes.at(-1)[1].overrides.dnd5e2024.warship.crewThresholds,
+      {minimum:10,optimal:25,excellent:50});
+    const writes=ctx.changes.length;
+    response={...base,crewMinimum:"10",crewOptimal:"",crewExcellent:"50"};
+    await assert.rejects(()=>app._edit(ship,"water"),/crew threshold/i);
+    assert.equal(ctx.changes.length,writes);
+    response={...base,crewMinimum:"10",crewOptimal:"55",crewExcellent:"50"};
+    await assert.rejects(()=>app._edit(ship,"water"),/invalid/i);
+    assert.equal(ctx.changes.length,writes);
+    response={...base,crewMinimum:"",crewOptimal:"",crewExcellent:""};
+    await app._edit(ship,"water");
+    assert.equal(ctx.changes.at(-1)[0],TRANSPORT_CATALOG_SETTING);
+    assert.equal(ctx.changes.at(-1)[1].overrides.dnd5e2024.warship.crewThresholds,undefined);
+  }finally{globalThis.foundry=oldFoundry;globalThis.ui=oldUI;ctx.restore();}
+});
+
+test("hired service tier editor saves explicit World rates and Map Marker inheritance, without enabling hire",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry,oldUI=globalThis.ui;
+  try{
+    const {findTransportationPreset}=await import("../scripts/navigation-transport-catalog.js");
+    const {checkpointOfferMethod,transportationMethodOverrideDelta}=await import("../scripts/checkpoint-transportation.js");
+    const ship=findTransportationPreset("warship",game.settings,"dnd5e");
+    const app=new AtlasTransportationSettings();app.render=async()=>{};
+    globalThis.ui={notifications:{info(){}}};
+    let response=null,expectedRate="",expectedSchedule="",expectedPlaceholder="250";
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content})=>{
+      const nodes=flatten(content);
+      const rate=nodes.find(e=>e.name==="hireLevelRate-optimal");
+      const schedule=nodes.find(e=>e.name==="hireLevelOperation-optimal");
+      assert.ok(rate&&schedule,"shared Services tab shows a tier editor");
+      assert.equal(rate.value,expectedRate);
+      assert.equal(rate.placeholder,expectedPlaceholder);
+      assert.equal(schedule.value,expectedSchedule);
+      return response;
+    }}}}};
+    await app._edit(ship,"water");
+    assert.deepEqual(ctx.changes,[]);
+    const base={name:ship.name,kind:ship.kind,speedDisplay:ship.speedMph,
+      capacity:ship.capacity,crewCount:60,costBasis:"none",costApplies:"unit",
+      crewWageBasis:"day",hireBasis:"day",hireApplies:"unit",hire_gp:"250",
+      overtimeEnabled:true,overtimeExtraHours:8,overtimeMultiplier:1.5,continuousEnabled:true};
+    response={...base,"hireLevelRate-optimal":"275","hireLevelOperation-optimal":"overtime"};
+    await app._edit(ship,"water");
+    const stored=ctx.changes.at(-1)[1].overrides.dnd5e2024.warship;
+    assert.deepEqual(stored.hireServiceLevels,{optimal:{hireCostCp:27500,operation:"overtime"}});
+    assert.equal(stored.hireEnabled,false);
+    const writes=ctx.changes.length;
+    response={...base,continuousEnabled:false,"hireLevelOperation-full":"continuous"};
+    await assert.rejects(()=>app._edit(ship,"water"),/continuous/i);
+    assert.equal(ctx.changes.length,writes);
+    const world={...ship,hireServiceLevels:stored.hireServiceLevels,overtimeEnabled:true,continuousEnabled:true};
+    const offer={methodId:ship.id,mode:"sea",overrides:{hireServiceLevels:{optimal:{hireCostCp:0}}}};
+    const local=checkpointOfferMethod(offer,world);
+    let result;
+    expectedRate="0";expectedPlaceholder="275";
+    response={...base,"hireLevelRate-optimal":"","hireLevelOperation-optimal":""};
+    await openTransportationMethodEditor({method:local,scope:"checkpoint",inheritedMethod:world,onSave:next=>{result=next;}});
+    assert.deepEqual(result.hireServiceLevels,world.hireServiceLevels);
+    assert.equal(transportationMethodOverrideDelta(world,result).hireServiceLevels,undefined);
+    assert.equal(ctx.changes.length,writes,"Map Marker apply never writes World settings");
+  }finally{globalThis.foundry=oldFoundry;globalThis.ui=oldUI;ctx.restore();}
+});
+
+test("Journey service terms use local inheritance and apply only to the trip draft",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry;
+  try{
+    const {findTransportationPreset}=await import("../scripts/navigation-transport-catalog.js");
+    const {transportationMethodOverrideDelta}=await import("../scripts/checkpoint-transportation.js");
+    const base={...findTransportationPreset("warship",game.settings,"dnd5e"),
+      hireEnabled:true,overtimeEnabled:true,continuousEnabled:true,
+      hireServiceLevels:{optimal:{hireCostCp:27500,operation:"overtime"},full:{hireCostCp:40000}}};
+    const effective={...base,hireServiceLevels:{...base.hireServiceLevels,optimal:{hireCostCp:0,operation:"overtime"}}};
+    let result=null,response=null;
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content,ok})=>{
+      const nodes=flatten(content);
+      assert.equal(ok.label,"Save for this trip");
+      const rate=nodes.find(e=>e.name==="hireLevelRate-optimal");
+      assert.ok(rate,"Journey hire terms must be editable");
+      assert.equal(rate.value,"0");
+      assert.equal(rate.placeholder,"275");
+      return response;
+    }}}}};
+    const open=()=>openTransportationMethodEditor({method:effective,scope:"journey",checkpointName:"Port",
+      inheritedMethod:base,onSave:next=>{result=next;}});
+    await open();
+    assert.equal(result,null);assert.deepEqual(ctx.changes,[]);
+    response={name:base.name,kind:base.kind,speedDisplay:base.speedMph,
+      capacity:base.capacity,crewCount:60,costBasis:"none",costApplies:"unit",
+      crewWageBasis:"day",hireBasis:"day",hireApplies:"unit",hire_gp:"250",
+      hireEnabled:true,overtimeEnabled:true,overtimeExtraHours:8,overtimeMultiplier:1.5,continuousEnabled:true,
+      hireUnlimited:true,hireQuantity:1,
+      "hireLevelRate-optimal":"","hireLevelOperation-optimal":"",
+      "hireLevelRate-full":"0"};
+    await open();
+    assert.deepEqual(result.hireServiceLevels,{optimal:{hireCostCp:27500,operation:"overtime"},full:{hireCostCp:0}});
+    assert.deepEqual(transportationMethodOverrideDelta(base,result).hireServiceLevels,{full:{hireCostCp:0}});
+    assert.deepEqual(ctx.changes,[]);
+  }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});
+
+test("checkpoint Journey tier selector chooses the advertised schedule without persisting selection",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry;
+  try{
+    const {findTransportationPreset}=await import("../scripts/navigation-transport-catalog.js");
+    const method={...findTransportationPreset("warship",game.settings,"dnd5e"),
+      hireEnabled:true,overtimeEnabled:true,continuousEnabled:true};
+    let result=null,selection=null;
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content})=>{
+      const select=flatten(content).find(e=>e.name==="atlasJourneyServiceLevel");
+      assert.ok(select);assert.deepEqual(select.children.map(o=>o.value),["","minimum","optimal","excellent","full"]);
+      return {name:method.name,kind:method.kind,speedDisplay:method.speedMph,
+        capacity:method.capacity,crewCount:60,costBasis:"none",costApplies:"unit",
+        crewWageBasis:"day",hireBasis:"day",hireApplies:"unit",hire_gp:"250",
+        hireEnabled:true,hireUnlimited:true,hireQuantity:1,overtimeEnabled:true,
+        overtimeExtraHours:8,overtimeMultiplier:1.5,continuousEnabled:true,
+        atlasJourneyOperation:"continuous",atlasJourneyServiceLevel:"minimum"};
+    }}}}};
+    await openTransportationMethodEditor({method,scope:"journey",checkpointName:"Port",
+      inheritedMethod:method,journeyOperation:"continuous",journeyServiceLevel:"",
+      onSave:(next,draft)=>{result=next;selection=draft;}});
+    assert.deepEqual(selection,{operation:"normal",serviceLevel:"minimum"});
+    assert.equal(result.serviceLevel,undefined);
+    assert.equal(result.atlasJourneyServiceLevel,undefined);
+    assert.deepEqual(ctx.changes,[]);
+  }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});
+
+test("transport slider serializes its initial zero and finite availability rather than browser midpoint",()=>{
+  const ctx=setup();
+  try{
+    for(const [name,value,max] of [["crewCount",0,1000],["hireQuantity",1,100]]){
+      const [range,number]=createTransportNumberSlider(name,value,{min:0,max,step:1}).children;
+      assert.equal(range.value,String(value));
+      assert.equal(range.defaultValue,String(value),"serialized range default must match numeric field");
+      assert.equal(number.defaultValue,String(value));
+    }
+  }finally{ctx.restore();}
 });

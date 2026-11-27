@@ -145,6 +145,7 @@ export class AtlasCheckpointPresetSettings extends foundry.applications.api.Appl
       "’? Existing Map Markers are independent and remain unchanged."));
     const confirmed=await foundry.applications.api.DialogV2.confirm({
       window:{title:"Delete Map Marker Preset"},content,
+      yes:{label:"Delete preset",default:false},no:{label:"Cancel",default:true},
       rejectClose:false,modal:true});
     if(!confirmed)return;
     const latest=readWorldCheckpointPresets();

@@ -1318,6 +1318,29 @@ test("drag handles preview without writes; undo, cancel, and save are reversible
  } finally {m.controller.tearDown();Object.assign(globalThis,prev);}
 });
 
+test("map-first Road authoring reports the exact persisted Road ID after save",async()=>{
+ const previous={game:globalThis.game,PIXI:globalThis.PIXI};
+ const m=setup();
+ const created=[];
+ try{
+  globalThis.game={user:{isGM:true}};
+  globalThis.PIXI={Graphics:m.Graphics};
+  m.controller.start(m.scene,()=>{},null,id=>created.push(id));
+  assert.deepEqual(created,[],"starting a Road never produces a saved identity");
+  m.listeners.get("pointerdown")(pointEvent(20,30));
+  assert.equal(await m.controller.finish(),false,"one point cannot create a Road");
+  assert.deepEqual(created,[]);
+  m.listeners.get("pointerdown")(pointEvent(70,80));
+  assert.deepEqual(created,[],"drawing remains transient");
+  assert.equal(await m.controller.finish(),true);
+  const stored=readAtlas(m.scene);
+  assert.deepEqual(created,[stored.roads[0].id],
+    "post-save Road Settings receives an authoritative returned ID, not the name");
+  assert.equal(await m.controller.finish(),false,"a completed draft cannot fire a second handoff");
+  assert.equal(created.length,1);
+ }finally{m.controller.tearDown();Object.assign(globalThis,previous);}
+});
+
 test("Locate Road receives active uncommitted geometry, never the saved copy",async()=>{
  const prev={game:globalThis.game,PIXI:globalThis.PIXI};
  const m=setup();
@@ -2108,5 +2131,35 @@ test("GM opt-in Road hover adds native Territory below Road name, never on playe
     assert.equal(m.controller.roadTerritoryHoverEnabled,false);
     m.controller.refresh();
     assert.equal(m.controller.labels.some(item=>item.text==="Dirwest, Valecor"),false);
+  }finally{m.controller.tearDown();Object.assign(globalThis,previous);}
+});
+
+test("declining either linked or standalone Map Marker form exits placement and never writes",async()=>{
+  const previous={game:globalThis.game,PIXI:globalThis.PIXI};
+  const m=setup();
+  try{
+    globalThis.game={user:{isGM:true},i18n:{localize:key=>key}};
+    globalThis.PIXI={Graphics:m.Graphics};
+    let seq=0;
+    const atlas=addRoad(createEmptyAtlas(),{name:"Road",points:[{x:0,y:0},{x:100,y:0}],
+      idFactory:()=>"initial"+ ++seq});
+    await m.scene.setFlag("fvtt-atlas-navigation","atlas",atlas);
+    let writes=0,changes=0,prompts=0;
+    const original=m.scene.setFlag;
+    m.scene.setFlag=async(...args)=>{writes++;return original(...args);};
+    m.controller.promptCheckpoint=async()=>{prompts++;return null;};
+    for(const [x,y] of [[80,85],[30,15]]){
+      m.controller.startCheckpoint(m.scene,()=>{changes++;},{
+        confirmIndependent:async()=>{prompts++;return null;},
+        saveIndependent:async()=>{throw Error("Cancelled draft cannot save");}});
+      await m.listeners.get("pointerdown")(pointEvent(x,y));
+      assert.equal(m.controller.getDraft(m.scene),null,"discard closes the single placement session");
+      assert.equal(m.listeners.has("pointerdown"),false);
+      assert.equal(m.docListeners.has("keydown"),false);
+    }
+    assert.equal(prompts,2);
+    assert.equal(changes,4,"one begin and one end per session");
+    assert.equal(writes,0);
+    assert.deepEqual(readAtlas(m.scene),atlas);
   }finally{m.controller.tearDown();Object.assign(globalThis,previous);}
 });

@@ -675,8 +675,8 @@ export class RoadCanvasController {
     this.refresh();
   }
 
-  start(scene, onChange, options = null) {
-    this.#startDrawing(scene, onChange, options);
+  start(scene, onChange, options = null, onCreated = null) {
+    this.#startDrawing(scene, onChange, options, onCreated);
   }
 
   startPointEdit(scene, roadId, onChange) {
@@ -866,7 +866,8 @@ export class RoadCanvasController {
           const details = await confirmIndependent({
             at: local, name: "Checkpoint " + ((current.checkpoints?.length ?? 0) + 1)
           });
-          if (!details || this.draft !== draft) return;
+          if(this.draft!==draft)return;
+          if(!details){this.cancel();return;}
           if (this.canvasProvider()?.scene?.id !== draft.sceneId ||
               readAtlas(scene).revision !== draft.expectedRevision) {
             throw new Error("Atlas or the active Scene changed during confirmation. Restart placement.");
@@ -897,7 +898,8 @@ export class RoadCanvasController {
           roads,
           defaultName: "Checkpoint " + ((current.checkpoints?.length ?? 0) + 1)
         });
-        if (this.draft !== draft || !config) return;
+        if(this.draft!==draft)return;
+        if(!config){this.cancel();return;}
         this.saving = true;
         const { checkpointId: newId, metadataError } = await createCheckpointFromDraft(scene, {
           config, candidate, expectedRevision: draft.expectedRevision,
@@ -995,7 +997,8 @@ export class RoadCanvasController {
       draft.confirming = true;
       try {
         const details = await confirm({ at, name: `Checkpoint ${(current.checkpoints?.length ?? 0) + 1}` });
-        if (!details || this.draft !== draft) return;
+        if(this.draft!==draft)return;
+        if(!details){this.cancel();return;}
         if (readAtlas(scene).revision !== draft.expectedRevision) {
           throw new Error("Atlas changed during confirmation. Restart placement.");
         }
@@ -1128,7 +1131,7 @@ export class RoadCanvasController {
     this.refresh();
   }
 
-  #startDrawing(scene, onChange, initialOptions = null) {
+  #startDrawing(scene, onChange, initialOptions = null, onCreated = null) {
     if (!globalThis.game?.user?.isGM ||
         !scene?.canUserModify?.(game.user, "update")) {
       throw new Error("Only a GM may draw Atlas roads.");
@@ -1154,7 +1157,7 @@ export class RoadCanvasController {
     const draft = {
       scene, sceneId: scene.id, expectedRevision: atlas.revision,
       mode: "new", confirming: false,
-      points: [], snap: [], redoPoints: [], element, onChange,
+      points: [], snap: [], redoPoints: [], element, onChange, onCreated,
       options: { name: suggestRoadName(atlas), presetId: null, appearance: null, playerVisible: false, journalUuid: null, ...initialOptions },
       onPointer: null, onKeydown: null
     };
@@ -1297,7 +1300,7 @@ export class RoadCanvasController {
       if (this.draft !== draft) return false;
       this.saving = true;
       this.#changed();
-      const { journalError } = await createRoadFromDraft(draft.scene, {
+      const { roadId, journalError } = await createRoadFromDraft(draft.scene, {
         points: draft.points, name: draft.options.name.trim(),
         presetId: draft.options.presetId, appearance: draft.options.appearance,
         playerVisible: draft.options.playerVisible === true,
@@ -1317,6 +1320,9 @@ export class RoadCanvasController {
       this.saving = false;
       this.refresh();
       this.notify()?.info?.("Atlas road saved to this Scene.");
+      // The authoritative Road ID comes from the committed graph, never its name.
+      try { draft.onCreated?.(roadId); }
+      catch(error) { console.warn("[fvtt-atlas-navigation] Road Settings handoff failed",error); }
       try { changed?.(); } catch (error) { console.warn("[fvtt-atlas-navigation] Atlas tab refresh failed", error); }
       return true;
     } catch (error) {

@@ -679,6 +679,20 @@ test("Region generator submits the displayed corridor half-width without a stale
     assert.equal(submissions[1].widthCells,.5);
     assert.equal(submissions[1].endCheckpointId,null);
     assert.equal(Object.hasOwn(scene,"setFlag"),false,"the preview does not write Scene data");
+    // The directory also shows markers incident to another road's segments.
+    // That does not make them authored anchors of the other road.
+    atlas.roads.push({id:"other",name:"Other Road"});
+    atlas.nodes.push({id:"c",x:50,y:100});
+    atlas.segments.push(
+      {id:"other1",roadId:"other",from:"a",to:"c",via:[],bidirectional:true},
+      {id:"other2",roadId:"other",from:"c",to:"b",via:[],bidirectional:true});
+    openAtlasRegionGenerator(scene,"other",{draft:()=>null},()=>{});
+    body=await generator._renderHTML();
+    assert.match(textContents(body),/Other Road/);
+    assert.match(textContents(body),/directly assigned to this road/i);
+    assert.match(textContents(body),/Add Map Marker/);
+    assert.equal(visit(body,e=>e.tag==="button"&&e.textContent==="Preview & Confirm"),null);
+    assert.equal(submissions.length,2,"ineligible markers cannot generate a Region");
   }finally{
     base.render=previousRender;
     for(const [key,value] of Object.entries(saved))globalThis[key]=value;

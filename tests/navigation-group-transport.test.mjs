@@ -512,3 +512,287 @@ test("no-seat NPC is still a traveler but does not require or reserve an individ
   assert.equal(justNyx.empty,false,"an NPC without a seat is still present");
   assert.equal(justNyx.partial,true,"native Group Token cannot split");
 });
+
+test("unit-specific crew rosters preserve missing versus explicit empty configuration",()=>{
+  const entry={role:"unassigned",quantity:2,capacity:60,surface:"water",profileId:"warship"};
+  const legacy=setGroupTransportationMember(defaultGroupTransportation(),"group1","ship1",entry);
+  const empty=setGroupTransportationMember(legacy,"group1","ship1",{...entry,crewRoster:[]});
+  assert.equal(legacy.groups.group1.members.ship1.crewRoster,undefined);
+  assert.deepEqual(empty.groups.group1.members.ship1.crewRoster,[]);
+  const roster=[{unitIndex:1,named:[{actorId:"pc1",duty:"Navigator"}],hired:30},
+    {unitIndex:2,named:[],hired:12}];
+  const configured=setGroupTransportationMember(empty,"group1","ship1",{...entry,crewRoster:roster});
+  const source=JSON.stringify(configured);
+  const projection=projectGroupTransportation(group([pc,warship]),configured);
+  assert.deepEqual(projection.members.find(m=>m.actorId==="ship1").crewRoster,roster);
+  const revised=setGroupTransportationMember(configured,"group1","ship1",{...entry,noteOverride:"new note"});
+  assert.deepEqual(revised.groups.group1.members.ship1.crewRoster,roster,"unrelated edits retain roster");
+  roster[0].hired=99;
+  assert.equal(JSON.stringify(configured),source,"saved roster is independent from draft input");
+  assert.equal(projection.travelers,1,"legacy passenger projection is unchanged until leg selection");
+});
+test("crew roster validation rejects duplicate named members across units and resources",()=>{
+  const entry={role:"unassigned",quantity:2,capacity:60,surface:"water",profileId:"warship"};
+  const unit={unitIndex:1,named:[{actorId:"pc1"}],hired:1};
+  for(const crewRoster of [null,{},[{...unit,unitIndex:0}],[{...unit,hired:-1}],
+    [{...unit,hired:1.5}],[{...unit,named:[{actorId:"pc1",duty:"x".repeat(81)}]}],
+    [unit,{...unit,named:[]}],[unit,{...unit,unitIndex:2}]])
+    assert.throws(()=>setGroupTransportationMember(defaultGroupTransportation(),"group1","ship1",
+      {...entry,crewRoster}),/invalid|crew/i);
+  const saved=setGroupTransportationMember(defaultGroupTransportation(),"group1","ship1",
+    {...entry,crewRoster:[unit]});
+  assert.throws(()=>setGroupTransportationMember(saved,"group1","ship2",
+    {...entry,crewRoster:[unit]}),/crew/i);
+});
+test("crew assessment reports eligible named crew, hired hands and stale units without mutating native Actors",async()=>{
+  const {assessGroupCrewRoster}=await import("../scripts/navigation-group-transport.js");
+  const npc=actor("npc1","Sailor","npc");
+  const native=group([pc,npc,warship]);
+  const before=JSON.stringify(native);
+  const method={id:"warship",kind:"vehicle",crewCount:60,includeCrewWages:true};
+  const entry={role:"unassigned",quantity:2,capacity:60,surface:"water",profileId:"warship"};
+  let saved=setGroupTransportationMembers(defaultGroupTransportation(),"group1",{
+    ship1:{...entry,crewRoster:[{unitIndex:1,named:[{actorId:"pc1"},{actorId:"npc1"}],hired:30}]},
+    npc1:{role:"crew",quantity:1,capacity:null,surface:"water"}
+  });
+  const assess=()=>{const p=projectGroupTransportation(native,saved,[method]);
+    return assessGroupCrewRoster(p,p.members.find(m=>m.actorId==="ship1"),method);};
+  let result=assess();
+  assert.equal(result.configured,true);
+  assert.deepEqual(result.issues,[]);
+  assert.deepEqual(result.units.map(({unitIndex,staffedCrew,pcCrew,paidCrew,tier})=>
+    ({unitIndex,staffedCrew,pcCrew,paidCrew,tier})),[
+      {unitIndex:1,staffedCrew:32,pcCrew:1,paidCrew:31,tier:"optimal"},
+      {unitIndex:2,staffedCrew:0,pcCrew:0,paidCrew:0,tier:"below-minimum"}]);
+  saved=setGroupTransportationMember(saved,"group1","ship1",{...entry,quantity:1,
+    crewRoster:[{unitIndex:1,named:[{actorId:"missing"}],hired:61},
+      {unitIndex:2,named:[],hired:1}]});
+  result=assess();
+  assert.ok(result.issues.some(x=>x.code==="stale-member"));
+  assert.ok(result.issues.some(x=>x.code==="stale-unit"));
+  assert.ok(result.issues.some(x=>x.code==="over-capacity"));
+  assert.equal(JSON.stringify(native),before);
+});
+
+test("owned crew policy overrides are validated and reset independently of the roster",()=>{
+  const entry={role:"unassigned",quantity:2,capacity:60,surface:"water",profileId:"warship",
+    crewRoster:[{unitIndex:1,named:[{actorId:"pc1"}],hired:30}]};
+  const policy={crewCount:40,crewThresholds:{minimum:10,optimal:20,excellent:30},
+    crewWageCpPerDay:0,crewWageBasis:"trip",includeCrewWages:false};
+  const world={id:"warship",crewCount:60,crewThresholds:{minimum:15,optimal:30,excellent:45},
+    crewWageCpPerDay:200,crewWageBasis:"day",includeCrewWages:true};
+  const saved=setGroupTransportationMember(defaultGroupTransportation(),"group1","ship1",
+    {...entry,crewPolicyOverride:policy});
+  const resource=data=>projectGroupTransportation(group([pc,warship]),data,[world]).members.find(m=>m.actorId==="ship1");
+  const effective=effectiveGroupResourceMethod(resource(saved),world);
+  for(const key of Object.keys(policy))assert.deepEqual(effective[key],policy[key]);
+  const unrelated=setGroupTransportationMember(saved,"group1","ship1",{...entry,noteOverride:"Note"});
+  assert.deepEqual(resource(unrelated).crewPolicyOverride,policy);
+  const reset=setGroupTransportationMember(unrelated,"group1","ship1",{...entry,crewPolicyOverride:null});
+  assert.deepEqual(resource(reset).crewRoster,entry.crewRoster);
+  assert.equal(effectiveGroupResourceMethod(resource(reset),world).crewCount,60);
+  assert.equal(world.crewWageCpPerDay,200);
+  for(const patch of [{crewCount:-1},{crewCount:20},{crewWageCpPerDay:-1},
+    {crewWageBasis:"week"},{includeCrewWages:"false"},{unknown:1}])
+    assert.throws(()=>setGroupTransportationMember(saved,"group1","ship1",
+      {...entry,crewPolicyOverride:{...policy,...patch}}),/invalid/i);
+});
+test("explicit operated-unit crew estimates pay NPCs and hired hands only, preserving reference estimates for missing rosters",async()=>{
+  const {estimateOperatedGroupCrew}=await import("../scripts/navigation-group-transport.js");
+  const npc=actor("npc1","Sailor","npc");
+  const native=group([pc,npc,warship]);
+  const method={id:"warship",name:"Warship",kind:"vehicle",surface:"water",crewCount:60,
+    crewWageCpPerDay:200,crewWageBasis:"day",includeCrewWages:true};
+  const entry={role:"unassigned",quantity:2,capacity:60,surface:"water",profileId:"warship",
+    crewRoster:[{unitIndex:1,named:[{actorId:"pc1"},{actorId:"npc1"}],hired:30},
+      {unitIndex:2,named:[],hired:10}]};
+  const selected=[{actorId:"ship1",unitIndex:1}];
+  const build=entry=>projectGroupTransportation(native,setGroupTransportationMembers(defaultGroupTransportation(),"group1",{
+    ship1:entry,npc1:{role:"crew",quantity:1,capacity:null,surface:"water"}}),[method]);
+  const factors={operatedUnits:selected,hours:24,distanceMi:60,dayHours:8};
+  const estimate=(entry,patch={})=>estimateOperatedGroupCrew(build(entry),method,{...factors,...patch});
+  const result=estimate(entry);
+  assert.equal(result.crewWagesCp,18600);
+  assert.deepEqual(result.namedCrewIds,["pc1","npc1"]);
+  assert.equal(result.units[0].paidCrew,31);
+  assert.equal(result.units[0].tier,"optimal");
+  assert.equal(estimate(entry,{operatedUnits:[{actorId:"ship1",unitIndex:2}]}).crewWagesCp,6000);
+  assert.equal(estimate({...entry,crewRoster:[]}).crewWagesCp,0);
+  const {crewRoster,...legacy}=entry;
+  const ref=estimate(legacy);
+  assert.equal(ref.crewWagesCp,36000);
+  assert.equal(ref.units[0].configured,false);
+  const policy={crewCount:60,crewThresholds:{minimum:15,optimal:30,excellent:45},
+    crewWageCpPerDay:200,crewWageBasis:"trip",includeCrewWages:true};
+  assert.equal(estimate({...entry,crewPolicyOverride:policy}).crewWagesCp,6200);
+  assert.equal(estimate({...entry,crewPolicyOverride:{...policy,crewWageBasis:"mile"}}).crewWagesCp,372000);
+  assert.equal(estimate({...entry,crewPolicyOverride:{...policy,includeCrewWages:false}}).crewWagesCp,0);
+  assert.equal(estimate(entry,{hours:0,distanceMi:0}).crewWagesCp,0);
+  for(const operatedUnits of [[],[...selected,...selected],[{actorId:"ship1",unitIndex:3}],[{actorId:"unknown",unitIndex:1}]])
+    assert.throws(()=>estimate(entry,{operatedUnits}),/unit/i);
+  const partial={...build(entry),selectedTravelerIds:[],travelers:0};
+  assert.throws(()=>estimateOperatedGroupCrew(partial,method,factors),/crew/i);
+});
+
+test("explicit owned unit quote separates crew from passenger seats and bills selected upkeep plus wages",()=>{
+  const npc=actor("npc1","Sailor","npc");
+  const rider=actor("pc2","Passenger","character");
+  const native=group([pc,rider,npc,warship]);
+  const method={id:"warship",name:"Warship",kind:"vehicle",surface:"water",crewCount:60,
+    costCp:100,costBasis:"day",costApplies:"unit",crewWageCpPerDay:200,
+    crewWageBasis:"day",includeCrewWages:true};
+  const saved=setGroupTransportationMembers(defaultGroupTransportation(),"group1",{
+    ship1:{role:"unassigned",quantity:2,capacity:1,surface:"water",profileId:"warship",
+      crewRoster:[{unitIndex:1,named:[{actorId:"pc1"},{actorId:"npc1"}],hired:30},
+        {unitIndex:2,named:[],hired:10}]},
+    npc1:{role:"passenger",quantity:1,capacity:null,surface:"water"}
+  });
+  const projection=projectGroupTransportation(native,saved,[method]);
+  const original=JSON.stringify(projection);
+  const factors={hours:24,distanceMi:60,dayHours:8};
+  const legacy=groupMethodFareEstimate(projection,method,factors);
+  assert.equal(legacy.amount,72600,"legacy reference calculation remains available");
+  const quote=groupMethodFareEstimate(projection,method,
+    {...factors,operatedUnits:[{actorId:"ship1",unitIndex:1}]});
+  assert.equal(quote.quantity,1);
+  assert.equal(quote.unseated,0);
+  assert.equal(quote.breakdown[0].passengers,1);
+  assert.equal(quote.breakdown[0].recurringCp,300);
+  assert.equal(quote.breakdown[0].crewWagesCp,18600);
+  assert.equal(quote.amount,18900);
+  assert.deepEqual(quote.namedCrewIds,["pc1","npc1"]);
+  assert.equal(quote.breakdown[0].staffedCrew,32);
+  assert.equal(quote.breakdown[0].requiredCrew,60);
+  assert.equal(quote.breakdown[0].paidCrew,31);
+  const other=groupMethodFareEstimate(projection,method,
+    {...factors,operatedUnits:[{actorId:"ship1",unitIndex:2}]});
+  assert.equal(other.unseated,2,"crew of non-operating units still need passenger seats");
+  assert.equal(other.amount,6300);
+  assert.equal(JSON.stringify(projection),original,"quotes do not alter Group projection");
+});
+
+test("explicit owned vehicle selection uses only operated hulls for seats, crew, pace and upkeep",()=>{
+  const npc=actor("npc1","Sailor","npc"),rider=actor("pc2","Passenger","character");
+  const other=actor("ship2","Other Warship","vehicle",{passengers:{max:60}});
+  const native=group([pc,rider,npc,warship,other]);
+  const method={id:"warship",name:"Warship",kind:"vehicle",surface:"water",speedMph:5,
+    crewCount:60,costCp:100,costBasis:"day",costApplies:"unit",crewWageCpPerDay:200,
+    crewWageBasis:"day",includeCrewWages:true};
+  const saved=setGroupTransportationMembers(defaultGroupTransportation(),"group1",{
+    ship1:{role:"unassigned",quantity:2,capacity:1,surface:"water",profileId:"warship",
+      crewRoster:[{unitIndex:1,named:[{actorId:"pc1"},{actorId:"npc1"}],hired:30},
+        {unitIndex:2,named:[],hired:10}],speedMphOverride:4},
+    ship2:{role:"unassigned",quantity:1,capacity:60,surface:"water",profileId:"warship",
+      speedMphOverride:2,crewRoster:[]},
+    npc1:{role:"passenger",quantity:1,capacity:null,surface:"water"}
+  });
+  const projection=projectGroupTransportation(native,saved,[method]);
+  const original=JSON.stringify(projection);
+  const operatedUnits=[{actorId:"ship1",unitIndex:1}];
+  const capacity=groupMethodCapacityStatus(projection,method,{operatedUnits});
+  assert.equal(capacity.sufficient,true);
+  assert.equal(capacity.travelers,1);
+  assert.equal(capacity.seats,1);
+  assert.equal(capacity.quantity,1);
+  assert.equal(capacity.effectiveSpeedMph,4);
+  assert.deepEqual(capacity.namedCrewIds,["pc1","npc1"]);
+  assert.equal(capacity.belowMinimum,false);
+  const otherUnit=groupMethodCapacityStatus(projection,method,{operatedUnits:[{actorId:"ship1",unitIndex:2}]});
+  assert.equal(otherUnit.sufficient,false);
+  assert.equal(otherUnit.missing,2);
+  assert.equal(otherUnit.belowMinimum,true);
+  const empty=groupMethodCapacityStatus(projection,method,{operatedUnits:[{actorId:"ship2",unitIndex:1}]});
+  assert.equal(empty.belowMinimum,true);
+  const legacy=groupMethodCapacityStatus(projection,method);
+  assert.equal(legacy.quantity,3);
+  assert.equal(legacy.effectiveSpeedMph,2);
+  const fare=groupMethodFareEstimate(projection,method,{hours:24,distanceMi:96,dayHours:8,operatedUnits});
+  assert.equal(fare.amount,18900);
+  assert.equal(fare.unseated,capacity.missing);
+  assert.throws(()=>groupMethodCapacityStatus(projection,method,{operatedUnits:[]}),/unit/i);
+  assert.throws(()=>groupMethodCapacityStatus(projection,method,{operatedUnits:[{actorId:"ship1",unitIndex:3}]}),/unit/i);
+  assert.equal(JSON.stringify(projection),original);
+});
+
+test("owned service approval preserves operated unit crew, roles, wages and advisory without live settings",async()=>{
+  const {planOwnedVehicleService,validateOwnedVehicleApproval}=await import("../scripts/navigation-group-transport.js");
+  const npc=actor("npc1","Sailor","npc"),rider=actor("pc2","Passenger","character");
+  const native=group([pc,rider,npc,warship]);
+  const method={id:"warship",name:"Warship",kind:"vehicle",surface:"water",speedMph:4,
+    crewCount:60,crewThresholds:{minimum:15,optimal:30,excellent:45},
+    costCp:100,costBasis:"day",costApplies:"unit",crewWageCpPerDay:200,
+    crewWageBasis:"day",includeCrewWages:true,continuousEnabled:true};
+  const saved=setGroupTransportationMembers(defaultGroupTransportation(),"group1",{
+    ship1:{role:"unassigned",quantity:2,capacity:2,surface:"water",profileId:"warship",
+      crewRoster:[{unitIndex:1,named:[{actorId:"pc1",duty:"Navigator"},{actorId:"npc1"}],hired:30},
+        {unitIndex:2,named:[],hired:10}]},
+    npc1:{role:"crew",quantity:1,capacity:null,surface:"water"}
+  });
+  const projection=projectGroupTransportation(native,saved,[method]);
+  const input=JSON.stringify({projection,method});
+  const operatedUnits=[{actorId:"ship1",unitIndex:1}];
+  const plan=planOwnedVehicleService(projection,method,{operatedUnits,movingHours:24,distanceMi:96,
+    regularHours:8,operation:"normal"});
+  assert.equal(plan.capacity.travelers,1);
+  assert.equal(plan.approval.units.length,1);
+  assert.equal(plan.approval.units[0].unitIndex,1);
+  assert.equal(plan.approval.units[0].paidCrew,31);
+  assert.equal(plan.approval.units[0].tier,"optimal");
+  assert.deepEqual(plan.approval.units[0].namedCrew.map(c=>[c.actorId,c.actorType,c.duty]),[
+    ["pc1","character","Navigator"],["npc1","npc",undefined]]);
+  assert.equal(plan.approval.crewWagesCp,18600);
+  assert.equal(plan.approval.baseCp,300);
+  assert.equal(plan.approval.totalCp,18900);
+  assert.equal(plan.approval.belowMinimum,false);
+  const later=structuredClone(plan.approval);
+  method.crewWageCpPerDay=900;method.crewCount=100;
+  assert.deepEqual(validateOwnedVehicleApproval(later),later);
+  method.crewWageCpPerDay=200;method.crewCount=60;
+  const reduced=planOwnedVehicleService(projection,method,{operatedUnits:[{actorId:"ship1",unitIndex:2}],
+    movingHours:24,distanceMi:96,regularHours:8});
+  assert.equal(reduced.approval.belowMinimum,true,"below minimum is an advisory, not a capacity error");
+  assert.equal(reduced.approval.totalCp,6300);
+  const continuous=planOwnedVehicleService(projection,method,{operatedUnits,movingHours:24,distanceMi:96,
+    regularHours:8,operation:"continuous"});
+  assert.equal(continuous.approval.dailyHours,24);
+  assert.equal(continuous.approval.crewWagesCp,18600,"continuous owned service preserves the standard billing day");
+  for(const change of [
+    a=>{a.units[0].unitIndex=0;},
+    a=>{a.units[0].paidCrew=32;},
+    a=>{a.totalCp++;},
+    a=>{a.belowMinimum=true;},
+    a=>{a.units.push(structuredClone(a.units[0]));},
+    a=>{a.units[0].tier="full";},
+    a=>{a.units[0].namedCrew[1].actorId="pc1";}
+  ]){
+    const bad=structuredClone(later);change(bad);
+    assert.throws(()=>validateOwnedVehicleApproval(bad),/invalid|duplicate/i);
+  }
+  assert.equal(JSON.stringify({projection,method}),input);
+});
+
+test("owned quote reports required and wage-estimated crew without treating unallocated crew as passengers or discounts",()=>{
+  const method={id:"warship",name:"Warship",kind:"vehicle",surface:"water",
+    capacity:60,speedMph:2.5,costCp:10,costBasis:"mile",costApplies:"unit",
+    crewCount:4,crewWageCpPerDay:200,includeCrewWages:true};
+  const crew=actor("crew1","Sailor","npc");
+  const saved=setGroupTransportationMembers(defaultGroupTransportation(),"group1",{
+    ship1:{role:"unassigned",quantity:2,capacity:60,surface:"water",profileId:"warship"},
+    crew1:{role:"crew",quantity:3,capacity:null,surface:"water"}
+  });
+  for(const [basis,periods] of [["day",2],["trip",1],["mile",10]]){
+    const world={...method,crewWageBasis:basis};
+    const roster=projectGroupTransportation(group([pc,warship,crew]),saved,[world]);
+    assert.equal(roster.travelers,1,"crew roles are not passenger seats");
+    const quote=groupMethodFareEstimate(roster,world,{hours:12,distanceMi:10,dayHours:8});
+    assert.equal(quote.breakdown[0].requiredCrew,8);
+    assert.equal(quote.breakdown[0].paidCrew,8);
+    assert.equal(quote.breakdown[0].recurringCp,200);
+    assert.equal(quote.breakdown[0].crewWagesCp,8*200*periods);
+    assert.equal(quote.amount,200+8*200*periods);
+    const excluded=groupMethodFareEstimate(roster,{...world,includeCrewWages:false},{hours:12,distanceMi:10,dayHours:8});
+    assert.equal(excluded.breakdown[0].requiredCrew,8);
+    assert.equal(excluded.breakdown[0].paidCrew,0);
+    assert.equal(excluded.amount,200);
+  }
+});

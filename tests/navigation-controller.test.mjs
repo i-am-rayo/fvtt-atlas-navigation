@@ -2,14 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {installNativeJourneyFixture} from "./support/native-journey-fixture.mjs";
 import { createNavigationItinerary } from "../scripts/navigation-itinerary.js";
-import { createJourneyRecord,checkpointJourneyRecord,findRecoverableJourney,
-  JOURNEY_JOURNAL_FLAG } from "../scripts/navigation-journey-journal.js";
+import { createJourneyRecord,checkpointJourneyRecord,findRecoverableJourney,validateJourneyRecord,
+  JOURNEY_JOURNAL_FLAG,formatJourneyJournalHTML } from "../scripts/navigation-journey-journal.js";
 import { GuidedTravelDayTracker,estimateNavigationTotalTrip }
   from "../scripts/navigation-travel-day.js";
 import {planNativeCheckpointPath}
   from "../scripts/navigation-native-movement-plan.js";
 import {projectPartyTravelSelection} from "../scripts/navigation-party-selection.js";
-import {defaultGroupTransportation,setGroupTransportationMember} from "../scripts/navigation-group-transport.js";
+import {defaultGroupTransportation,setGroupTransportationMember,planOwnedVehicleService} from "../scripts/navigation-group-transport.js";
+import {createJourneyParticipation} from "../scripts/navigation-journey-participation.js";
+import {quoteTransportationService} from "../scripts/navigation-transport-service.js";
 import { defaultTransportationCatalog,findTransportationPreset,setTransportationPreset }
   from "../scripts/navigation-transport-catalog.js";
 
@@ -33,6 +35,10 @@ const { AtlasNavigationController }=await import("../scripts/navigation-controll
 globalThis.foundry=previousFoundry;
 
 installNativeJourneyFixture(AtlasNavigationController);
+
+const approvalDocument=()=>({createElement:tag=>({tag,style:{},textContent:"",children:[],
+  append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);}})});
+const approvalNodes=node=>[node,...(node.children??[]).flatMap(approvalNodes)];
 
 const point=(x,y)=>({x,y});
 const pointer=(x,y,flags={})=>({button:0,clientX:x,clientY:y,
@@ -286,16 +292,53 @@ test("pending native checkpoint cannot publish uncredited World time after canva
 });
 
 test("changing Navigation stages releases detached progress and World-clock DOM refs",async()=>{
-  const nav=new AtlasNavigationController();
-  nav.completedRoute=true;
-  nav.travelProgressUI={bar:{}};
-  nav.journeyTimeUI={moving:{}};
-  nav.worldTimeUI={};
-  nav.renderJourneyStage=async stage=>stage;
-  assert.equal(await nav._renderHTML(),"completed");
-  assert.equal(nav.travelProgressUI,null);
-  assert.equal(nav.journeyTimeUI,null);
-  assert.equal(nav.worldTimeUI,null);
+  const previous=globalThis.game;
+  try{
+    globalThis.game={user:{isGM:true}};
+    const nav=new AtlasNavigationController();
+    nav.completedRoute=true;
+    nav.travelProgressUI={bar:{}};
+    nav.journeyTimeUI={moving:{}};
+    nav.worldTimeUI={};
+    nav.renderJourneyStage=async stage=>stage;
+    assert.equal(await nav._renderHTML(),"completed");
+    assert.equal(nav.travelProgressUI,null);
+    assert.equal(nav.journeyTimeUI,null);
+    assert.equal(nav.worldTimeUI,null);
+  }finally{globalThis.game=previous;}
+});
+
+test("GM-only Navigation window and route graphics fail closed on role loss",async()=>{
+  const previous={game:globalThis.game,document:globalThis.document};
+  try{
+    globalThis.game={user:{isGM:false}};
+    globalThis.document={createElement:tag=>({tag,textContent:"",children:[],style:{},
+      append(...items){this.children.push(...items);}})};
+    const nav=new AtlasNavigationController({
+      atlasProvider:()=>{throw Error("Unexpected private Atlas read");},
+      canvasProvider:()=>{throw Error("Unexpected canvas read");}});
+    nav.scene={id:"secret"};
+    nav.recoveryRecord={title:"Private Journey",legs:[{completedPercent:50}]};
+    const saved=JSON.stringify(nav.recoveryRecord);
+    let clears=0;
+    nav.overlay={clear(){clears++;}};
+    nav.renderDestinationStage=async()=>{throw Error("Unexpected private destination projection");};
+    nav.renderJourneyStage=async()=>{throw Error("Unexpected private Journey projection");};
+    for(const stage of ["destination","journey","checkpoint","completed"]){
+      nav.navigationStage=()=>stage;
+      nav.travelProgressUI={};nav.journeyTimeUI={};nav.worldTimeUI={};
+      const root=await nav._renderHTML();
+      const labels=n=>[n.textContent,...n.children.flatMap(labels)].join(" ");
+      assert.match(labels(root),/Only a GM may use Atlas Navigation/);
+      assert.equal(root.children.length,0,"no planner controls or private context");
+      assert.equal(nav.travelProgressUI,null);assert.equal(nav.journeyTimeUI,null);
+      assert.equal(nav.worldTimeUI,null);
+      assert.equal(JSON.stringify(nav.recoveryRecord),saved);
+    }
+    nav.draw();
+    assert.equal(clears,1,"remove existing route graphics without reading the Atlas");
+    assert.equal(JSON.stringify(nav.recoveryRecord),saved);
+  }finally{Object.assign(globalThis,previous);}
 });
 
 test("unexpected canvas redraw reports and safely ends the active journey",()=>{
@@ -1779,7 +1822,8 @@ test("active ship Journey displays the approved method and saved sailing hours, 
     const scene={id:"sea-scene",name:"Paedor",grid:{size:100,units:"mi"},
       canUserModify:()=>true,getFlag:()=>null};
     const atlas={revision:4,roads:[{id:"sea",name:"Sea Lane"}],
-      nodes:[],segments:[],checkpoints:[]};
+      nodes:[{id:"dock-node",...point(0,0)},{id:"port-node",...point(500,0)}],segments:[],
+      checkpoints:[{id:"dock",nodeId:"dock-node",name:"Dock"},{id:"port",nodeId:"port-node",name:"Port"}]};
     const route={status:"ok",start:point(0,0),end:point(500,0),
       distance:95.48,cost:95.48,terrainAware:false,legs:[{
         kind:"road",roadId:"sea",segmentId:"ocean",distance:95.48,cost:95.48,
@@ -1797,8 +1841,9 @@ test("active ship Journey displays the approved method and saved sailing hours, 
         shortRestHours:1,forcedMarch:"custom"}});
     const approved={methodId:"ship-passage",methodName:"Ship passage (hired)",
       kind:"vehicle",arrangement:"hire",surface:"water",operation:"continuous"};
-    nav.travelSession={phase:"moving",transportLeg:{transport:approved},
-      schedule,journeyRecord:{legs:[{speedPerHour:2,movingHours:47+44/60,
+    nav.travelSession={sceneId:scene.id,phase:"moving",transportLeg:{transport:approved},
+      schedule,journeyRecord:{sceneId:scene.id,destination:point(1000,0),legs:[{sceneId:scene.id,
+        departure:route.start,destination:route.end,speedPerHour:2,movingHours:47+44/60,
         transport:approved}]}};
     const panel=await nav._renderHTML();
     const all=node=>[node,...(node.children??[]).flatMap(all)];
@@ -1813,6 +1858,15 @@ test("active ship Journey displays the approved method and saved sailing hours, 
     assert.equal(nodes.some(node=>node.textContent?.includes?.(
       "Speed: Ship passage (hired) (approved hire Journey leg)")),false,
       "verbose saved speed detail was intentionally removed from the GM Journey tab");
+    const context=nodes.find(node=>node.className==="atlas-navigation-route-context");
+    assert.ok(context,"active Journey identifies its approved leg independently of final Point B");
+    assert.match(all(context).map(n=>n.textContent).join(" "),/From\s+Dock.*Next stop\s+Port.*Final destination\s+Selected map destination/);
+    assert.ok(nodes.some(node=>node.textContent==="Playback speed · current leg"));
+    const before=JSON.stringify(nav.travelSession.journeyRecord);
+    game.user.isGM=false;
+    assert.equal(all(await nav._renderHTML()).some(node=>node.className==="atlas-navigation-route-context"),false);
+    game.user.isGM=true;
+    assert.equal(JSON.stringify(nav.travelSession.journeyRecord),before);
     const card=nodes.find(node=>node.tag==="div"&&
       node.children?.[0]?.textContent==="Travel Time");
     assert.ok(card);
@@ -1830,6 +1884,14 @@ test("active ship Journey displays the approved method and saved sailing hours, 
       "Speed: Riding Horse (approved owned Journey leg)")),false,
       "mount recovery retains saved method authority without redundant GM copy");
     assert.equal(nav.travelSession.journeyRecord.legs[0].travelMethod.id,"riding-horse");
+    nav.recoveryRecord=nav.travelSession.journeyRecord;
+    nav.travelSession=null;nav.result=null;nav.end=nav.recoveryRecord.destination;
+    nav.pendingTransfer={sceneId:scene.id,checkpoint:{id:"port",name:"Port",point:route.end}};
+    const checkpoint=all(await nav._renderHTML()).find(n=>n.className==="atlas-navigation-route-context");
+    assert.ok(checkpoint);
+    assert.match(all(checkpoint).map(n=>n.textContent).join(" "),/From\s+Dock.*Current stop\s+Port.*Final destination\s+Selected map destination/);
+    game.user.isGM=false;
+    assert.equal(all(await nav._renderHTML()).some(n=>n.className==="atlas-navigation-route-context"),false);
   }finally{Object.assign(globalThis,previous);}
 });
 
@@ -1842,12 +1904,31 @@ test("checkpoint-hired Cart follows a land-only road with explicit GM confirmati
       hireCostCp:250,hireBasis:"day",hireApplies:"unit",
       continuousEnabled:true}}];
     const writes=[],dialogTitles=[];
-    let approve=false;
+    let approve=false,advanceClock=false;
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
-      settings:{get:()=>undefined}};
+      users:{activeGM:{id:"other-gm",name:"Other GM"}},
+      settings:{get:(_m,key)=>key==="guidedTravelAdvanceWorldTime"?advanceClock:undefined}};
     globalThis.PIXI=undefined;
-    globalThis.document={createElement:tag=>({tag,style:{},textContent:""})};
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],
+      append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);return node;}})};
     globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
+      const nodes=node=>[node,...(node.children??[]).flatMap(nodes)];
+      const items=nodes(options.content),labels=items.map(n=>n.textContent).join(" ");
+      assert.ok(items.some(n=>n.className==="atlas-transport-approval-table"));
+      assert.match(labels,/Cart \(hired\)/);
+      assert.match(labels,/Assigned party explorer/);
+      assert.match(labels,/Operating schedule: continuous.*24h\/day/);
+      assert.match(labels,/Base transportation 62\.5 CP/);
+      assert.match(labels,/1 EP · 1 SP · 3 CP/);
+      assert.equal(options.yes?.label,"Start leg");
+      assert.equal(options.no?.label,"Back to plan");
+      assert.ok(items.some(n=>n.className==="atlas-transport-approval"),"single land uses standard summary");
+      for(const label of ["Method","Travelers","Units","Cost","Total travelers","Group travel speed",
+        "Estimated moving time","Estimated transportation cost"])
+        assert.ok(items.some(n=>n.textContent===label),label);
+      assert.ok(items.some(n=>n.textContent==="Cart (hired)"));
+      assert.ok(items.some(n=>n.textContent==="1"));
+      assert.ok(items.some(n=>n.textContent==="3.00 mph"));
       dialogTitles.push(options.window.title);return approve;
     }}}}};
     const token={id:"party",x:-50,y:-50,width:1,height:1,actor:null,
@@ -1902,6 +1983,11 @@ test("checkpoint-hired Cart follows a land-only road with explicit GM confirmati
       "the unapproved default contains no separate continuous choice");
     assert.equal(nav.resolveTravelRules({methodId:"cart"}).dailyHours,null,
       "the effective offered Cart automatically determines the continuous plan");
+    advanceClock=true;
+    await assert.rejects(nav.startGuidedTravel(),/active GM/);
+    assert.equal(dialogTitles.length,0,"inactive GM is blocked before presenting an approval");
+    assert.equal(token.moves,0);assert.equal(writes.length,0);
+    advanceClock=false;
     assert.equal(await nav.startGuidedTravel(),false,
       "declining the explicit GM hire leaves the Journey unchanged");
     assert.equal(token.moves,0);assert.equal(writes.length,0);
@@ -1915,13 +2001,27 @@ test("checkpoint-hired Cart follows a land-only road with explicit GM confirmati
       {id:"a",name:"Alba",type:"character",seats:1},
       {id:"b",name:"Kori",type:"character",seats:1}],
       selectedIds:nav.partySelectionMode==="selected"?["a"]:["a","b"],
+      travelerCount:nav.partySelectionMode==="selected"?1:2,
       empty:false,partial:nav.partySelectionMode==="selected"});
-    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+    globalThis.foundry.applications.api.DialogV2.confirm=async({content})=>{
+      assert.ok(approvalNodes(content).some(n=>n.textContent==="Alba, Kori"));
+      assert.ok(approvalNodes(content).some(n=>n.textContent==="2"));
       nav.partySelectionMode="selected";return true;};
     await assert.rejects(()=>nav.startGuidedTravel(),/participation changed|selection changed/,
       "late selection changes must fail before native move or Journal writes");
     assert.equal(token.moves,0);assert.equal(writes.length,0);
     nav.partySelectionMode="all";nav.partyTravelSelection=originalPartySelection;
+    advanceClock=true;
+    game.users.activeGM={id:"gm",name:"Current GM"};
+    game.time={advance:async()=>{throw Error("Unexpected clock write");}};
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      game.users.activeGM={id:"other-gm",name:"Other GM"};
+      return true;
+    };
+    await assert.rejects(nav.startGuidedTravel(),/active GM/);
+    assert.equal(token.moves,0,"active GM handoff cannot launch movement");
+    assert.equal(writes.length,0,"active GM handoff cannot create a Journal");
+    advanceClock=false;
     globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
       dialogTitles.push(options.window.title);return true;};
     approve=true;
@@ -1957,7 +2057,8 @@ test("a changed hired Cart offer during GM confirmation never starts a Journey",
     let hireCostCp=250,moves=0,saves=0;
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
       settings:{get:()=>undefined}};
-    globalThis.document={createElement:tag=>({tag,textContent:""})};
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],
+      append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);return node;}})};
     globalThis.foundry={applications:{api:{DialogV2:{confirm:async()=>{
       hireCostCp=500;return true;
     }}}}};
@@ -1988,7 +2089,7 @@ test("a changed hired Cart offer during GM confirmation never starts a Journey",
 });
 
 test("a partially completed hired Cart leg remains hired and locked on recovery",async()=>{
-  const previous={game:globalThis.game,document:globalThis.document};
+  const previous={game:globalThis.game,document:globalThis.document,foundry:globalThis.foundry};
   try{
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
       settings:{get:()=>undefined}};
@@ -2002,7 +2103,9 @@ test("a partially completed hired Cart leg remains hired and locked on recovery"
       canUserModify:()=>true,getFlag:()=>null};
     const atlas={revision:7,nodes:[{id:"p",x:0,y:0},{id:"g",x:300,y:0}],
       roads:[{id:"land",name:"Road"}],segments:[],checkpoints:[]};
-    const token={id:"party",x:100,y:-50,width:1,height:1};
+    let writes=0,moves=0,dialogs=0;
+    const token={id:"party",x:100,y:-50,width:1,height:1,canUserModify:()=>true,
+      async move(){moves++;throw Error("Unexpected native movement");}};
     const route={status:"ok",start:point(150,0),end:point(300,0),
       distance:3,cost:3,terrainAware:false,legs:[{
         kind:"road",roadId:"land",segmentId:"segment",
@@ -2010,7 +2113,8 @@ test("a partially completed hired Cart leg remains hired and locked on recovery"
         distance:3,cost:3}]};
     const nav=new AtlasNavigationController({canvasProvider:()=>({ready:true,scene}),
       atlasProvider:()=>atlas,partyTokenProvider:()=>token,
-      atlasPoint:(_view,_atlas,p)=>p});
+      atlasPoint:(_view,_atlas,p)=>p,journeyJournalStore:{find:()=>null,
+        save:async()=>{writes++;throw Error("Unexpected Journal write");}}});
     nav.scene=scene;nav.sourceMode="party";nav.routeRevision=7;
     nav.start=route.start;nav.end=route.end;nav.result=route;
     nav.travelMethod="cart";nav.transportArrangement="hire";
@@ -2038,6 +2142,33 @@ test("a partially completed hired Cart leg remains hired and locked on recovery"
       item.id==="atlas-navigation-travel-method");
     assert.equal(select?.value,"hire|cart");
     assert.equal(select?.disabled,true,"recovery cannot change an approved hire to owned");
+    const inspect=async(expectedHours,tier)=>{
+      const before=structuredClone(nav.recoveryRecord);
+      globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
+        dialogs++;
+        const labels=node=>[node.textContent,...node.children.flatMap(labels)];
+        const summary=labels(options.content).join(" ");
+        assert.match(summary,/Previously approved — no new fare/);
+        assert.match(summary,new RegExp("Operating schedule: normal · "+expectedHours+"h/day"));
+        assert.doesNotMatch(summary,/Fare breakdown/);
+        if(tier)assert.match(summary,/Hired service: minimum/);
+        assert.equal(options.yes?.label,"Resume leg");
+        assert.equal(options.no?.label,"Back to plan");
+        return false;
+      }}}}};
+      assert.equal(await nav.startGuidedTravel(),false);
+      assert.deepEqual(nav.recoveryRecord,before);
+    };
+    await inspect(8,false);
+    const approved=structuredClone(record);
+    approved.legs[0].travelMethod.serviceApproval=quoteTransportationService({id:"cart",
+      name:"Cart",kind:"vehicle",surface:"land",capacity:2,crewCount:4,hireEnabled:true,
+      hireCostCp:123,hireBasis:"trip",hireApplies:"unit",hireCrewIncluded:true},{
+      arrangement:"hire",serviceLevel:"minimum",movingHours:1,distanceMi:3,regularHours:6});
+    nav.recoveryRecord=validateJourneyRecord(approved);
+    assert.equal(nav.transportAvailability().offers.has("cart"),false);
+    await inspect(6,true);
+    assert.equal(dialogs,2);assert.equal(writes,0);assert.equal(moves,0);
     nav.transportArrangement="owned";
     assert.equal(nav.assessTravelMethod().guided,false);
     assert.match(nav.assessTravelMethod().reason,/approved land method and arrangement/);
@@ -2464,7 +2595,7 @@ test("mixed land method overrides are per-method and remain preview-only",()=>{
 test("mixed carriage pencil opens the shared journey and Map Marker editor without saving",async()=>{
   const previous={game:globalThis.game,foundry:globalThis.foundry,
     document:globalThis.document};
-  const writes=[],dialogs=[];
+  const writes=[],dialogs=[];let response=null;
   class Node {
     constructor(tag){this.tagName=tag.toUpperCase();this.children=[];
       this.style={cssText:""};this.attributes=new Map();
@@ -2477,13 +2608,13 @@ test("mixed carriage pencil opens the shared journey and Map Marker editor witho
   try{
     globalThis.document={createElement:tag=>new Node(tag)};
     globalThis.foundry={applications:{api:{DialogV2:{
-      input:async data=>{dialogs.push(data);return null;}
+      input:async data=>{dialogs.push(data);return response;}
     }}}};
     globalThis.game={system:{id:"dnd5e"},user:{id:"gm",isGM:true},
       settings:{get:()=>undefined,set:async()=>writes.push("world")}};
     const carriage=findTransportationPreset("carriage",game.settings,"dnd5e");
     const offer={methodId:"carriage",mode:"land",
-      overrides:{hireEnabled:true,hireCostCp:400},
+      overrides:{hireEnabled:true,hireCostCp:400,continuousEnabled:true},
       checkpointId:"port",checkpointName:"Dirwest"};
     const nav=new AtlasNavigationController({
       atlasProvider:()=>({revision:7})});
@@ -2494,7 +2625,7 @@ test("mixed carriage pencil opens the shared journey and Map Marker editor witho
         }]}}:undefined,
       setFlag:async()=>writes.push("scene")};
     nav.mixedKeys=["owned|walking","hire|carriage"];
-    nav.transportAvailability=()=>({all:[carriage],methods:[carriage],
+    nav.transportAvailability=()=>({all:[carriage],methods:[{id:"walking",name:"Walking",surface:"land",kind:"foot"},carriage],
       offers:new Map([["carriage",offer]]),owned:new Set()});
     nav.canDraftTravelMethods=()=>true;
     nav.render=async()=>{};
@@ -2505,9 +2636,22 @@ test("mixed carriage pencil opens the shared journey and Map Marker editor witho
     assert.match(dialogs[0].window.title,/Edit Carriage/);
     assert.deepEqual(writes,[],"opening or cancelling cannot write World or Map Marker");
     assert.deepEqual(nav.mixedKeys,["owned|walking","hire|carriage"]);
+    const flatten=n=>[n,...(n.children??[]).flatMap(flatten)];
+    const select=flatten(dialogs[0].content).find(n=>n.name==="atlasJourneyServiceLevel");
+    assert.ok(select,"mixed hire editor exposes service selection");
+    response={name:carriage.name,kind:carriage.kind,speedDisplay:carriage.speedMph,
+      capacity:carriage.capacity,crewCount:carriage.crewCount??0,costBasis:"none",costApplies:"unit",
+      crewWageBasis:"day",hireBasis:"day",hireApplies:"unit",hire_gp:"4",
+      hireEnabled:true,hireUnlimited:true,hireQuantity:1,continuousEnabled:true,
+      overtimeExtraHours:8,overtimeMultiplier:1.5,atlasJourneyServiceLevel:"full"};
+    await nav.editMixedTravelMethod("hire|carriage");
+    assert.equal(nav.mixedLandChoices()[1].serviceLevel,"full");
+    assert.equal(nav.mixedLandChoices()[0].serviceLevel,undefined);
+    assert.deepEqual(writes,[],"tier applies to Journey draft only");
+    assert.equal(offer.overrides.serviceLevel,undefined);
     globalThis.game.user.isGM=false;
     await assert.rejects(nav.editMixedTravelMethod("hire|carriage"),/authorized GM/);
-    assert.equal(dialogs.length,1,"a non-GM cannot open the editing workflow");
+    assert.equal(dialogs.length,2,"a non-GM cannot open the editing workflow");
   }finally{Object.assign(globalThis,previous);}
 });
 
@@ -3141,6 +3285,18 @@ test("saved B to C all-water route uses current-leg tiles rather than the old me
     const root=await nav._renderHTML();
     const find=(node,predicate)=>predicate(node)?node:
       node.children?.map(child=>find(child,predicate)).find(Boolean);
+    const routeContext=find(root,node=>node.className==="atlas-navigation-route-context");
+    const contextLabels=node=>[node.textContent,...(node.children??[]).flatMap(contextLabels)].join(" ");
+    assert.ok(routeContext,"saved onward route has an explicit current-leg context");
+    assert.match(contextLabels(routeContext),/From\s+Port Barthos.*Next stop\s+Hearth's Heart Dock.*Final destination\s+Selected map destination/);
+    assert.equal(nav.recoveryRecord.routeTargets.nextTargetIndex,2);
+    game.user.isGM=false;
+    const playerView=await nav._renderHTML();
+    assert.equal(find(playerView,node=>node.className==="atlas-navigation-route-context"),undefined,
+      "the new GM-only route context must not disclose saved checkpoint or destination metadata");
+    assert.doesNotMatch(contextLabels(playerView),/Port Barthos|Hearth.s Heart|Ship passage|Lucious/,
+      "no private checkpoint, service or participant detail in a player window");
+    game.user.isGM=true;
     const tiles=find(root,node=>node.className==="atlas-navigation-methods");
     assert.ok(tiles,"the onward water leg uses the same method cards as land");
     const ship=find(tiles,node=>node.tag==="input"&&node.value==="hire|ship-passage");
@@ -3309,8 +3465,21 @@ test("GM cargo convoy rechecks finite checkpoint stock before Journey Journal or
     let available=1,moves=0,writes=0;
     globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
       settings:{get:()=>undefined}};
-    globalThis.document={createElement:tag=>({tag,textContent:""})};
-    globalThis.foundry={applications:{api:{DialogV2:{confirm:async()=>{
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],listeners:new Map(),
+      addEventListener(name,cb){this.listeners.set(name,cb);},setAttribute(name,value){this[name]=value;},
+      append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);return node;}})};
+    globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
+      const nodes=node=>[node,...(node.children??[]).flatMap(nodes)];
+      const items=nodes(options.content),labels=items.map(n=>n.textContent).join(" ");
+      assert.ok(items.some(n=>n.className==="atlas-transport-approval-table"));
+      assert.match(labels,/Walking.*Traveler.*Cart.*Cargo only/);
+      assert.match(labels,/Estimated transportation cost 2 SP · 2 CP/);
+      assert.match(labels,/No passengers board/);
+      assert.equal(options.yes?.label,"Start leg");
+      assert.equal(options.no?.label,"Back to plan");
+      assert.ok(items.some(n=>n.className==="atlas-transport-approval"),"cargo uses standard summary");
+      assert.ok(items.some(n=>n.textContent==="Cargo only"));
+      assert.ok(items.some(n=>n.textContent==="Traveler"));
       available=0;return true;
     }}}}};
     const group={id:"group1",type:"group",name:"Party",system:{members:[
@@ -3322,7 +3491,9 @@ test("GM cargo convoy rechecks finite checkpoint stock before Journey Journal or
       canUserModify:()=>true,getFlag:(_m,key)=>key==="checkpointTransportOffers"?{
         schemaVersion:1,entries:{hearth:[{methodId:"cart",mode:"land",
           overrides:{hireEnabled:true,hireApplies:"unit",hireQuantity:available,
-            hireUnlimited:false,capacity:2,speedMph:4}}]}}:null};
+            hireUnlimited:false,capacity:2,speedMph:4,hireCostCp:10.1,hireBasis:"trip"}},
+          {methodId:"wagon",mode:"land",overrides:{hireEnabled:true,hireApplies:"unit",hireUnlimited:true,
+            capacity:2,speedMph:4,hireCostCp:10.1,hireBasis:"trip"}}]}}:null};
     const atlas={revision:3,nodes:[{id:"a",x:0,y:0},{id:"b",x:100,y:0}],
       roads:[{id:"road",name:"Road"}],segments:[{id:"s",roadId:"road",
         from:"a",to:"b",via:[]}],
@@ -3341,7 +3512,7 @@ test("GM cargo convoy rechecks finite checkpoint stock before Journey Journal or
     nav.scene=scene;nav.sourceMode="party";nav.routeRevision=3;
     nav.start=route.start;nav.end=route.end;nav.result=route;
     nav.travelMethod="walking";nav.transportArrangement="owned";
-    nav.convoyEnabled=true;nav.convoyCargoQuantities={cart:1};
+    nav.convoyEnabled=true;nav.convoyCargoQuantities={cart:1,wagon:1};
     nav.render=async()=>{};nav.draw=()=>{};
     const a=nav.transportAvailability();
     assert.ok(a.offers.has("cart"),JSON.stringify({offers:[...a.offers.keys()],
@@ -3352,6 +3523,11 @@ test("GM cargo convoy rechecks finite checkpoint stock before Journey Journal or
       JSON.stringify({methods:a.methods.map(m=>m.id),choice:nav.cargoConvoyChoices(a)}));
     const preview=nav.mixedConvoyPlan();
     assert.equal(preview.hires[0].units,1);
+    assert.equal(preview.totalCp,20.2);
+    const nodes=node=>[node,...(node.children??[]).flatMap(nodes)];
+    const panel=nodes(await nav.renderDestinationStage());
+    assert.ok(panel.some(n=>/Estimated hire 2 SP · 2 CP \(not charged\)/.test(n.textContent)),
+      "preview must display the same rounded fare as the confirmation");
     assert.equal(nav.assessTravelMethod().guided,true);
     nav.convoyPace=7;
     assert.equal(nav.assessTravelMethod().guided,false,
@@ -3593,7 +3769,9 @@ test("Navigation retains the travel tab scroll position after a traveler drag re
   assert.deepEqual(after.map(x=>[x.scrollTop,x.scrollLeft]),[[612,4],[27,0]]);
 });
 
-test("partial vessel recovery persists evidence and retries without duplicating time",async()=>{
+for(const arrangement of ["hire","owned"])test(arrangement==="hire"?
+  "partial vessel recovery persists evidence and retries without duplicating time":
+  "partial owned vessel recovery preserves approved crew and quote through durable reconciliation",async()=>{
   const previous={game:globalThis.game,ui:globalThis.ui};
   try{
     const op="bounded-voyage-01";
@@ -3614,12 +3792,32 @@ test("partial vessel recovery persists evidence and retries without duplicating 
         arrangement:"hire",kind:"vehicle",surface:"water",departureCheckpointName:null,
         arrivalCheckpointId:"port",arrivalCheckpointName:"Port",roadNames:["Sea"],
         estimatedFareCp:10,operation:"continuous"}};
+    if(arrangement==="owned"){
+      const method={id:"warship",name:"Warship",kind:"vehicle",surface:"water",
+        speedMph:2,capacity:2,crewCount:4,continuousEnabled:true,costCp:100,
+        costBasis:"day",costApplies:"unit",includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"};
+      const roster={travelers:1,selectedTravelerIds:["pc"],members:[
+        {actorId:"pc",actorName:"Captain",actorType:"character",role:"passenger",quantity:1,needsSeat:true,enabled:true},
+        {actorId:"sailor",actorName:"Sailor",actorType:"npc",role:"crew",quantity:1,enabled:true},
+        {actorId:"ship",actorName:"Warship",actorType:"vehicle",role:"vehicle",quantity:1,capacity:2,
+          surface:"water",profileId:"warship",enabled:true,
+          crewRoster:[{unitIndex:1,named:[{actorId:"pc"},{actorId:"sailor"}],hired:1}]}]};
+      const draft=planOwnedVehicleService(roster,method,{operatedUnits:[{actorId:"ship",unitIndex:1}],
+        movingHours:4,distanceMi:8,regularHours:8,operation:"continuous"}).approval;
+      const approval={...draft,belowMinimumAcknowledged:draft.belowMinimum};
+      itinerary.transport={...itinerary.transport,methodId:method.id,methodName:method.name,
+        arrangement,estimatedFareCp:approval.totalCp,ownedApproval:approval};
+      itinerary.participation=createJourneyParticipation(roster,["pc"],{
+        methodKey:"owned|warship",ownedApproval:approval});
+    }
     const anchor={point:point(50,50),roadId:"sea",segmentId:"s",
       checkpointId:null,levelId:"surface",elevation:0};
     let record=createJourneyRecord({sceneId:scene.id,tokenId:token.id,
       atlasRevision:4,itinerary,journeyDestination:point(400,50),initialAnchor:anchor,
       approvedPath:{schemaVersion:1,legs:route.legs}});
     record.status="interrupted";
+    const approvedTransport=structuredClone(record.legs[0].transport);
+    const approvedParticipation=structuredClone(record.legs[0].participation);
     record.pendingNativeMove={schemaVersion:1,bounded:true,previousMovementId:null,
       operationId:op,tokenId:token.id,checkpointIndex:0,from:point(0,0),to:point(50,0),
       path:[point(0,0),point(50,0)],nativePath:[point(0,0),point(50,0)],completedPercent:50,nativeDistance:50,
@@ -3669,6 +3867,9 @@ test("partial vessel recovery persists evidence and retries without duplicating 
     assert.equal(record.legs[0].worldTravelSeconds,3600);
     assert.deepEqual(record.destination,point(400,50));
     assert.deepEqual(record.lastConfirmedAnchor.point,point(75,50));
+    assert.deepEqual(record.legs[0].transport,approvedTransport);
+    assert.deepEqual(record.legs[0].participation,approvedParticipation);
+    assert.equal(record.legs.length,1,"reconciliation is not a new approval or fare");
   }finally{Object.assign(globalThis,previous);}
 });
 test("canvas teardown suspends a submitted continuous operation instead of ending it",async()=>{
@@ -3920,6 +4121,30 @@ test("interrupted Journey timing ignores the old leg schedule instead of crashin
     "the matching live schedule still contributes confirmed downtime");
 });
 
+test("onward review uses the confirmed checkpoint when the native token snaps off its marker",()=>{
+  const oldGame=globalThis.game;
+  try{
+    globalThis.game={user:{isGM:true}};
+    const nav=new AtlasNavigationController();
+    nav.scene={id:"sandbox"};
+    nav.sourceMode="party";
+    const port=point(100,100),dirwest=point(200,100);
+    nav.atlasProvider=()=>({nodes:[{id:"port-node",...port},{id:"end-node",...dirwest}],
+      checkpoints:[{id:"port",nodeId:"port-node",name:"Port Barthos"},
+        {id:"end",nodeId:"end-node",name:"Dirwest"}]});
+    const route={status:"ok",start:point(101,100),end:dirwest};
+    nav.recoveryRecord={sceneId:"sandbox",status:"paused",destination:dirwest,
+      legs:[{completedPercent:100,transport:{arrivalCheckpointId:"port"}}]};
+    assert.deepEqual(nav.routeReviewContext(route),
+      {from:"Port Barthos",next:"Dirwest",final:"Dirwest"});
+    nav.recoveryRecord.legs[0].completedPercent=60;
+    assert.equal(nav.routeReviewContext(route).from,"Party departure point");
+    nav.recoveryRecord.legs[0].completedPercent=100;
+    nav.recoveryRecord.sceneId="other";
+    assert.equal(nav.routeReviewContext(route).from,"Party departure point");
+  }finally{globalThis.game=oldGame;}
+});
+
 test("unmovable day-boundary requests explicit early GM consent without native movement",async()=>{
   const nav=new AtlasNavigationController();
   const schedule=new GuidedTravelDayTracker({travelHours:9.2,rules:{
@@ -3929,7 +4154,11 @@ test("unmovable day-boundary requests explicit early GM consent without native m
   const session={sceneId:"scene",phase:"moving",schedule};
   nav.travelSession=session;
   let durable=0,commits=0;
-  nav.saveJourneyCheckpoint=async()=>{durable++;};
+  nav.saveJourneyCheckpoint=async(_session,status,options)=>{
+    assert.equal(status,"paused");
+    assert.equal(options.updatePage,true,"daily decision publishes the confirmed Journal page");
+    durable++;
+  };
   nav.commitGuidedTravelBreak=async(_session,choice)=>{
     commits++;schedule.applyBreak(choice);
   };
@@ -3987,4 +4216,1681 @@ test("land vehicle boarding prices physical animals without changing passenger s
       "zero animal spaces do not prevent vehicle travel with no animals");
     assert.deepEqual(roster,saved);
   }finally{globalThis.game=previous;}
+});
+
+test("checkpoint Journey explicitly selected hired tier drives schedule and quote without changing local offer",()=>{
+  const previous=globalThis.game;
+  try{
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},settings:{get:()=>undefined}};
+    const from=point(0,0),to=point(300,0);
+    const atlas={revision:1,nodes:[{id:"start",...from},{id:"end",...to}],
+      roads:[{id:"sea",name:"Sea passage",travelPresetId:"water-sea"}],
+      segments:[{id:"segment",roadId:"sea",from:"start",to:"end",via:[]}],
+      checkpoints:[{id:"dock",name:"Dock",nodeId:"start",roadId:"sea"},
+        {id:"port",name:"Port",nodeId:"end",roadId:"sea"}]};
+    const stock={schemaVersion:1,entries:{dock:[{methodId:"warship",mode:"sea",overrides:{
+      hireEnabled:true,hireCostCp:1000,hireBasis:"day",hireApplies:"unit",
+      overtimeEnabled:true,overtimeExtraHours:8,continuousEnabled:true,
+      hireServiceLevels:{minimum:{hireCostCp:500},optimal:{hireCostCp:800}}}}]}};
+    const scene={id:"sea-scene",grid:{size:100,units:"mi"},getFlag:(_ns,key)=>
+      key==="checkpointTransportOffers"?stock:undefined};
+    const nav=new AtlasNavigationController({atlasProvider:()=>atlas,partyTokenProvider:()=>null});
+    nav.scene=scene;nav.result={status:"ok",start:from,end:to,distance:60,cost:60,
+      legs:[{kind:"road",roadId:"sea",segmentId:"segment",points:[from,to],distance:60,cost:60}]};
+    nav.transferSelections[0]="hire|warship";
+    const before=JSON.stringify(stock);
+    nav.transferLegOverrides[0]={selection:"hire|warship",overrides:{},serviceLevel:"minimum"};
+    const minimum=nav.transportationTransitionPlan().legs[0];
+    assert.deepEqual(minimum.errors,[]);
+    assert.equal(minimum.operation,"normal");
+    assert.equal(minimum.dailyHours,8);
+    assert.equal(minimum.serviceQuote.serviceLevel,"minimum");
+    assert.equal(minimum.serviceQuote.advertisedCrew,15);
+    assert.equal(minimum.serviceQuote.hireTerms.hireCostCp,500);
+    nav.transferLegOverrides[0].serviceLevel="optimal";
+    const optimal=nav.transportationTransitionPlan().legs[0];
+    assert.equal(optimal.operation,"overtime");
+    assert.equal(optimal.dailyHours,16);
+    assert.equal(optimal.serviceQuote.advertisedCrew,30);
+    nav.transferLegOverrides[0].serviceLevel="full";
+    const full=nav.transportationTransitionPlan().legs[0];
+    assert.equal(full.operation,"continuous");
+    assert.equal(full.dailyHours,24);
+    assert.equal(full.serviceQuote.advertisedCrew,60);
+    delete nav.transferLegOverrides[0];
+    assert.equal(nav.transportationTransitionPlan().legs[0].serviceQuote.serviceLevel,undefined);
+    assert.equal(JSON.stringify(stock),before);
+  }finally{globalThis.game=previous;}
+});
+
+test("hired checkpoint review and preview show one exact mount subtotal at inherited and override rates",{timeout:15000},async()=>{
+  const previous={game:globalThis.game,foundry:globalThis.foundry,document:globalThis.document};
+  try{
+    const config=setGroupTransportationMember(defaultGroupTransportation(),"group1","horse",{
+      role:"mount",quantity:1,capacity:1,surface:"land",profileId:"warhorse"});
+    let percent=50,override=null,moves=0,dialogCount=0;
+    const writes=[],journals=[];
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},settings:{
+      get:(_m,key)=>key==="guidedGroupTransportation"?config:
+        key==="guidedLivestockFarePercent"?percent:undefined,
+      set:(...args)=>writes.push(args)}};
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],listeners:new Map(),
+      append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);return node;},
+      addEventListener(name,cb){this.listeners.set(name,cb);},setAttribute(name,value){this[name]=value;}})};
+    const flatten=node=>[node,...node.children.flatMap(flatten)];
+    const labels=node=>flatten(node).map(n=>n.textContent).join(" ");
+    const token={id:"party",x:-50,y:-50,width:1,height:1,canUserModify:()=>true,
+      async move(){moves++;throw Error("Unexpected native movement");},
+      actor:{id:"group1",type:"group",name:"Party",system:{members:[
+        {actor:{id:"pc1",name:"Alba",type:"character"}},
+        {actor:{id:"pc2",name:"Brent",type:"character"}},
+        {actor:{id:"horse",name:"Warhorse",type:"npc"}}]}}};
+    const from=point(0,0),port=point(300,0),end=point(400,0);
+    const atlas={revision:1,nodes:[{id:"start",...from},{id:"port",...port},{id:"end",...end}],
+      roads:[{id:"sea",name:"Sea passage",travelPresetId:"water-sea"},{id:"land",name:"Onward road"}],
+      segments:[{id:"sea-segment",roadId:"sea",from:"start",to:"port",via:[]},
+        {id:"land-segment",roadId:"land",from:"port",to:"end",via:[]}],
+      checkpoints:[{id:"dock",name:"Dock",nodeId:"start",roadId:"sea"},
+        {id:"port",name:"Port",nodeId:"port",roadId:"sea"}]};
+    const offer=()=>({schemaVersion:1,entries:{dock:[{methodId:"ship-passage",mode:"sea",overrides:{
+      hireEnabled:true,hireCostCp:10.1,hireBasis:"trip",hireApplies:"passenger",
+      hireCrewIncluded:true,capacity:6,livestockCapacity:3,hireUnlimited:false,hireQuantity:1,
+      ...(override!==null?{livestockFarePercent:override}:{})}}]}});
+    const scene={id:"sea-scene",name:"Paedor",grid:{size:100,units:"mi"},canUserModify:()=>true,
+      getFlag:(_m,key)=>key==="checkpointTransportOffers"?offer():undefined};
+    const nav=new AtlasNavigationController({atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+      canvasProvider:()=>({ready:true,scene}),atlasPoint:(_v,_a,p)=>p,
+      journeyJournalStore:{find:()=>null,save:async record=>{journals.push(structuredClone(record));throw Error("Test Journal boundary");}}});
+    nav.scene=scene;nav.sourceMode="party";nav.routeRevision=1;
+    nav.start=from;nav.end=end;nav.result={status:"ok",start:from,end,distance:10,cost:10,
+      legs:[{kind:"road",roadId:"sea",segmentId:"sea-segment",points:[from,port],distance:5,cost:5},
+        {kind:"road",roadId:"land",segmentId:"land-segment",points:[port,end],distance:5,cost:5}]};
+    nav.transferSelections[0]="hire|ship-passage";
+    nav.transferLegOverrides[0]={selection:"hire|ship-passage",overrides:{},serviceLevel:"minimum"};
+    nav.livestockDecisions={horse:1};nav.render=async()=>{};nav.draw=()=>{};
+    const groupBefore=structuredClone(token.actor);
+    // The old DOM must not change the livestock draft after authority or
+    // lifecycle changes, or after the route has been replaced.
+    for(const lock of ["player","moving","preparing","suspended","unfinished","route"]){
+      const nodes=flatten(await nav.renderDestinationStage());
+      const mount=nodes.find(n=>n.title==="Move Warhorse to stay behind");
+      const quantity=nodes.find(n=>n["aria-label"]?.startsWith("Number of Warhorse"));
+      assert.ok(mount&&quantity,lock);
+      const route=nav.result;
+      if(lock==="player")game.user.isGM=false;
+      if(lock==="moving")nav.travelSession={};
+      if(lock==="preparing")nav.journalStarting=true;
+      if(lock==="suspended")nav.suspendedNativeSession={};
+      if(lock==="unfinished")nav.recoveryRecord={status:"interrupted",legs:[{completedPercent:50}]};
+      if(lock==="route")nav.result={...route};
+      mount.listeners.get("click")();
+      quantity.value="0";quantity.listeners.get("change")();
+      assert.deepEqual(nav.livestockDecisions,{horse:1},lock);
+      game.user.isGM=true;nav.travelSession=null;nav.journalStarting=false;
+      nav.suspendedNativeSession=null;nav.recoveryRecord=null;nav.result=route;
+    }
+    assert.deepEqual(writes,[]);assert.deepEqual(journals,[]);assert.equal(moves,0);
+    for(const [world,local,amount,total,policy] of [
+      [0,null,0,"2 SP · 1 CP","World default 0%"],
+      [50,null,5.05,"2 SP · 6 CP","World default 50%"],
+      [200,null,20.2,"4 SP · 1 CP","World default 200%"],
+      [0,50,5.05,"2 SP · 6 CP","Method override 50%"]]){
+      percent=world;override=local;
+      const leg=nav.transportationTransitionPlan().legs[0];
+      assert.deepEqual(leg.errors,[]);
+      assert.equal(leg.serviceQuote.serviceLevel,"minimum");
+      assert.equal(leg.serviceQuote.travelers,2);
+      assert.equal(leg.serviceQuote.livestockCount,1);
+      assert.equal(leg.serviceQuote.livestockFareCp,amount);
+      assert.equal(leg.livestock.estimatedFareCp,amount);
+      const panel=labels(await nav.renderDestinationStage());
+      assert.match(panel,/From\s+Dock.*Next stop\s+Port.*Final destination\s+Selected map destination/);
+      assert.ok(panel.includes("Physical mount boarding: "+amount+" CP"));
+      assert.ok(panel.includes(policy));
+      assert.ok(panel.includes(total));
+      globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
+        dialogCount++;
+        const summary=labels(options.content);
+        assert.match(summary,/From\s+Dock.*Next stop\s+Port.*Final destination\s+Selected map destination/);
+        assert.ok(summary.includes("Base transportation 20.2 CP"));
+        assert.ok(summary.includes("Physical mount boarding "+amount+" CP"));
+        assert.equal((summary.match(/Physical mount boarding/g)??[]).length,1);
+        assert.ok(summary.includes(policy));assert.ok(summary.includes(total));
+        assert.match(summary,/Alba.*Brent/);
+        assert.match(summary,/Warhorse ×1/);
+        assert.equal(options.yes?.label,"Start leg");assert.equal(options.no?.label,"Back to plan");
+        return false;
+      }}}}};
+      assert.equal(await nav.startGuidedTravel(),false);
+    }
+    assert.equal(dialogCount,4);assert.equal(journals.length,0);assert.equal(moves,0);
+    // Approve the explicit local override once; stop at the real Journal
+    // persistence boundary rather than simulate successful native movement.
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>true;
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    assert.equal(journals.length,1);assert.equal(moves,0);
+    const saved=structuredClone(journals[0]),approved=saved.legs[0];
+    assert.equal(approved.transport.serviceApproval.livestockFareCp,5.05);
+    assert.equal(approved.transport.serviceApproval.totalCp,25.25);
+    assert.equal(approved.livestock.estimatedFareCp,5.05);
+    assert.equal(approved.livestock.resources[0].aboard,1);
+    assert.equal(approved.participation.people.filter(p=>p.traveling).length,2);
+    saved.status="interrupted";
+    nav.recoveryRecord=saved;nav.recoveryJournal={id:"saved-ship"};
+    nav.result={...nav.result,end:port,distance:5,cost:5,legs:[nav.result.legs[0]]};
+    nav.end=port;nav.travelMethod="ship-passage";nav.transportArrangement="hire";
+    nav.transportOperation="normal";
+    percent=200;override=null;
+    const recovered=nav.transportationTransitionPlan().legs[0];
+    assert.deepEqual(recovered.approvedService,approved.transport.serviceApproval);
+    assert.equal(recovered.costCp,0);
+    const savedBefore=structuredClone(saved);
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      const summary=labels(options.content);
+      assert.match(summary,/Previously approved — no new fare/);
+      assert.match(summary,/Warhorse ×1.*Previously approved fare/);
+      assert.match(summary,/From\s+Dock.*Next stop\s+Port.*Final destination\s+Selected map destination/);
+      assert.doesNotMatch(summary,/Fare breakdown|World default 200%|5\.05 CP/);
+      assert.equal(options.yes?.label,"Resume leg");
+      assert.equal(options.no?.label,"Back to plan");
+      return true;
+    };
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    assert.equal(journals.length,2);
+    const continued=journals[1].legs.at(-1);
+    assert.equal(continued.transport.continuation,true);
+    assert.equal(continued.transport.estimatedFareCp,0);
+    assert.deepEqual(continued.transport.serviceApproval,approved.transport.serviceApproval);
+    assert.deepEqual(continued.livestock,approved.livestock);
+    assert.deepEqual(continued.participation,approved.participation);
+    assert.deepEqual(saved,savedBefore);
+    assert.equal(moves,0);
+    assert.deepEqual(writes,[]);assert.deepEqual(token.actor,groupBefore);
+    // Execute the actual controller/native-movement adapter on a fresh draft,
+    // then reopen its committed Journal with a new controller (browser reload).
+    percent=0;override=50;
+    globalThis.game.users={activeGM:{id:"gm"}};
+    globalThis.game.time={worldTime:1000,async advance(delta){this.worldTime+=delta;}};
+    let durable=null,approvals=0;
+    const journal={id:"native-ship",getFlag:()=>structuredClone(durable)};
+    const store={find:()=>journal,save:async record=>{
+      durable=structuredClone(record);return journal;
+    }};
+    const makeController=()=>{
+      const controller=new AtlasNavigationController({atlasProvider:()=>atlas,
+        partyTokenProvider:()=>token,canvasProvider:()=>({ready:true,scene}),
+        atlasPoint:(_v,_a,p)=>p,journeyJournalStore:store});
+      controller.scene=scene;controller.sourceMode="party";controller.routeRevision=1;
+      controller.render=async()=>{};controller.draw=()=>{};
+      return controller;
+    };
+    const live=makeController();
+    live.start=from;live.end=end;live.result={status:"ok",start:from,end,distance:10,cost:10,
+      legs:[{kind:"road",roadId:"sea",segmentId:"sea-segment",points:[from,port],distance:5,cost:5},
+        {kind:"road",roadId:"land",segmentId:"land-segment",points:[port,end],distance:5,cost:5}]};
+    live.transferSelections[0]="hire|ship-passage";
+    live.transferLegOverrides[0]={selection:"hire|ship-passage",overrides:{},serviceLevel:"minimum"};
+    live.livestockDecisions={horse:1};
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{approvals++;return true;};
+    token.move=async waypoints=>{
+      assert.equal(durable.legs[0].transport.serviceApproval.totalCp,25.25);
+      assert.equal(durable.legs[0].livestock.resources[0].aboard,1);
+      const last=waypoints.at(-1);
+      assert.ok(last.x<=250.0001,"native movement may not cross the confirmed port");
+      token.x=last.x;token.y=last.y;moves++;return true;
+    };
+    const livePlan=live.transportationTransitionPlan().legs[0];
+    assert.deepEqual(livePlan.errors,[]);
+    assert.ok(livePlan.hours>0&&livePlan.hours<8,"short fixture must not require a rest decision");
+    assert.equal(await live.startGuidedTravel(),true);
+    assert.ok(moves>0);assert.equal(token.x,250);
+    assert.equal(live.pendingTransfer?.checkpoint?.id,"port");
+    assert.equal(durable.status,"paused");
+    assert.equal(durable.legs[0].completedPercent,100);
+    assert.deepEqual(durable.destination,end);
+    assert.deepEqual(durable.legs[0].transport.serviceApproval,approved.transport.serviceApproval);
+    assert.deepEqual(durable.legs[0].livestock,approved.livestock);
+    assert.deepEqual(durable.legs[0].participation,approved.participation);
+    const finished=structuredClone(durable),movesAtArrival=moves,timeAtArrival=game.time.worldTime;
+    const writesAtArrival=structuredClone(writes);
+    assert.deepEqual(writesAtArrival.map(([module,key,pulse])=>[module,key,pulse.type]),[
+      ["fvtt-atlas-navigation","atlasAnnouncementPulse","journey.started"],
+      ["fvtt-atlas-navigation","atlasAnnouncementPulse","checkpoint.arrived"]]);
+    percent=200;override=null;
+    const reloaded=makeController();
+    reloaded.recoverableJourney=journal;
+    assert.equal(reloaded.recoverSavedJourney(),true);
+    assert.equal(reloaded.pendingTransfer?.checkpoint?.id,"port");
+    assert.deepEqual(reloaded.end,end);
+    assert.equal(reloaded.livestockDecisions.horse,1);
+    assert.deepEqual(reloaded.recoveryRecord,finished);
+    assert.deepEqual(durable,finished);
+    assert.equal(moves,movesAtArrival);
+    assert.equal(game.time.worldTime,timeAtArrival);
+    assert.equal(approvals,1,"reload does not approve another booking");
+    assert.deepEqual(writes,writesAtArrival,"reload does not republish announcements or write settings");
+    assert.deepEqual(token.actor,groupBefore);
+
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("ordinary hired land service keeps explicit tier and immutable approved fare",async()=>{
+  const previous={game:globalThis.game,foundry:globalThis.foundry,
+    document:globalThis.document,PIXI:globalThis.PIXI};
+  let nav;
+  try{
+    let offers=[{methodId:"cart",mode:"land",overrides:{hireEnabled:true,
+      hireCostCp:250,hireBasis:"day",hireApplies:"unit",
+      continuousEnabled:true,hireServiceLevels:{minimum:{hireCostCp:123}}}}];
+    const writes=[],dialogTitles=[];
+    let approve=false;
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},
+      settings:{get:()=>undefined}};
+    globalThis.PIXI=undefined;
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],
+      append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);return node;}})};
+    globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
+      const nodes=node=>[node,...(node.children??[]).flatMap(nodes)];
+      const items=nodes(options.content),labels=items.map(n=>n.textContent).join(" ");
+      assert.ok(items.some(n=>n.className==="atlas-transport-approval-table"));
+      assert.match(labels,/Cart \(hired\)/);
+      assert.match(labels,/Assigned party explorer/);
+      assert.match(labels,/Operating schedule: normal.*8h\/day/);
+      assert.match(labels,/1 GP · 2 SP · 3 CP/);
+      assert.equal(options.yes?.label,"Start leg");
+      assert.equal(options.no?.label,"Back to plan");
+      dialogTitles.push(options.window.title);return approve;
+    }}}}};
+    const token={id:"party",x:-50,y:-50,width:1,height:1,actor:null,
+      moves:0,canUserModify:()=>true,
+      async move(waypoints){this.moves++;Object.assign(this,waypoints.at(-1));return true;}};
+    const scene={id:"port-scene",name:"Paedor",grid:{size:100,units:"mi"},
+      canUserModify:()=>true,
+      getFlag:(_module,key)=>key==="checkpointTransportOffers"?{
+        schemaVersion:1,entries:{port:offers}}:null};
+    const atlas={revision:7,nodes:[{id:"p",x:0,y:0},{id:"g",x:300,y:0}],
+      roads:[{id:"land",name:"Dirwest-Port Barthos"}],
+      segments:[{id:"segment",roadId:"land",from:"p",to:"g",via:[]}],
+      checkpoints:[{id:"port",name:"Port Barthos",nodeId:"p",roadId:"land"}]};
+    const view={ready:true,scene};
+    const route={status:"ok",start:point(0,0),end:point(300,0),
+      distance:6,cost:6,terrainAware:false,legs:[{kind:"road",roadId:"land",
+        segmentId:"segment",points:[point(0,0),point(300,0)],distance:6,cost:6}]};
+    nav=new AtlasNavigationController({canvasProvider:()=>view,
+      atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+      atlasPoint:(_view,_atlas,location)=>location,
+      journeyJournalStore:{find:()=>null,save:async record=>{
+        writes.push(structuredClone(record));return {id:"cart-journey"};}}});
+    nav.scene=scene;nav.sourceMode="party";nav.routeRevision=7;
+    nav.start=route.start;nav.end=route.end;nav.result=route;
+    nav.travelMethod="cart";nav.transportArrangement="hire";
+    nav.transportServiceLevel="minimum";
+    nav.render=async()=>{};nav.draw=()=>{};
+    nav.itinerary=createNavigationItinerary({sceneId:scene.id,sceneName:scene.name,
+      sceneUnits:"mi",atlasRevision:7,route,travel:{speed:3}});
+    // Port Barthos is also the arrival after a previously completed hired
+    // ship checkpoint leg. Approving the Cart must append a new land leg to
+    // that Journal, not demand another authored checkpoint at South-East Gate.
+    const priorItinerary=createNavigationItinerary({sceneId:scene.id,
+      sceneName:scene.name,sceneUnits:"mi",atlasRevision:7,route,
+      travel:{speed:2}});
+    priorItinerary.transport={methodId:"ship-passage",methodName:"Ship passage (hired)",
+      kind:"vehicle",arrangement:"hire",surface:"water",
+      departureCheckpointName:"Hearth's Heart Dock",arrivalCheckpointId:"port",
+      arrivalCheckpointName:"Port Barthos",roadNames:["Coastal Passage"],
+      estimatedFareCp:500,operation:"continuous"};
+    const previousRecord=createJourneyRecord({sceneId:scene.id,tokenId:token.id,
+      atlasRevision:7,itinerary:priorItinerary});
+    previousRecord.status="paused";
+    previousRecord.legs[0].completedPercent=100;
+    previousRecord.legs[0].completedMovingHours=previousRecord.legs[0].movingHours;
+    nav.recoveryRecord=previousRecord;
+    nav.recoveryJournal={id:"prior-voyage"};
+    assert.equal(nav.transportAvailability().owned.has("cart"),false);
+    assert.equal(nav.transportAvailability().offers.get("cart").checkpointId,"port");
+    assert.equal(nav.assessTravelMethod().guided,true,
+      "a checkpoint-offered Cart is eligible even without a party-owned Cart");
+    assert.equal(nav.transportOperation,"normal",
+      "the unapproved default contains no separate continuous choice");
+    assert.equal(nav.resolveTravelRules({methodId:"cart"}).dailyHours,8,
+      "explicit minimum service must not be silently promoted to continuous");
+    assert.equal(await nav.startGuidedTravel(),false,
+      "declining the explicit GM hire leaves the Journey unchanged");
+    assert.equal(token.moves,0);assert.equal(writes.length,0);
+    approve=true;
+    assert.equal(await nav.startGuidedTravel(),true);
+    assert.ok(token.moves>0,"a native TokenDocument move completes the Cart journey");
+    assert.deepEqual(dialogTitles,["Confirm land travel","Confirm land travel"]);
+    assert.equal(writes.at(-1).status,"completed");
+    assert.equal(writes.at(-1).legs.length,2);
+    assert.deepEqual(writes.at(-1).legs[1].approvedPath.legs.map(leg=>({
+      roadId:leg.roadId,segmentId:leg.segmentId})),[
+      {roadId:"land",segmentId:"segment"}],
+    "every newly approved continuation leg persists its exact Road identity");
+    assert.equal(writes.at(-1).legs[0].transport.methodId,"ship-passage");
+    const approved=writes.at(-1).legs[1].travelMethod;
+    assert.equal(approved.operation,"normal");
+    assert.equal(approved.serviceApproval.serviceLevel,"minimum");
+    assert.equal(approved.serviceApproval.totalCp,123);
+    assert.equal(approved.serviceApproval.dailyHours,8);
+    assert.equal(approved.serviceApproval.hireTerms.hireCostCp,123);
+    assert.equal(offers[0].overrides.hireCostCp,250);
+    assert.equal(writes.at(-1).legs[1].speedPerHour,3);
+    assert.equal(writes.at(-1).legs[1].worldTravelSeconds,0,
+      "without the World-clock setting the Cart cannot advance time");
+    assert.equal(nav.completedRoute,true);
+    assert.equal(scene.setFlag,undefined,"no Scene offer is written or charged");
+    // Another World/custom method is not licensed merely because the road is land.
+    nav.recoveryRecord=null;nav.completedRoute=false;nav.transportArrangement="hire";
+    offers=[];
+    assert.equal(nav.assessTravelMethod().guided,false);
+    assert.match(nav.assessTravelMethod().reason,/no longer offered/);
+  }finally{nav?.stop();Object.assign(globalThis,previous);}
+});
+
+test("approved mixed convoy retains the common travel day even after World rules change",()=>{
+  const before=globalThis.game;
+  try{
+    globalThis.game={system:{id:"dnd5e"},settings:{get:()=>undefined}};
+    const nav=new AtlasNavigationController();
+    nav.resolveTravelRules=()=>({dailyHours:8,overnightHours:16});
+    const approved={schemaVersion:2,sharedDailyHours:6};
+    const rules=nav.resolveCurrentLegRules({methodId:"walking"},null,null,approved);
+    assert.equal(rules.dailyHours,6);
+    assert.equal(rules.overnightHours,18);
+    assert.equal(nav.resolveCurrentLegRules({methodId:"walking"}).dailyHours,8);
+  }finally{globalThis.game=before;}
+});
+
+test("owned checkpoint unit selection is a scoped draft with selected capacity, pace and wages",async()=>{
+  const previous={game:globalThis.game,foundry:globalThis.foundry,document:globalThis.document};
+  try{
+    const owned=setGroupTransportationMember(defaultGroupTransportation(),"group1","ship",{
+      role:"unassigned",quantity:2,capacity:2,surface:"water",profileId:"warship",
+      speedMphOverride:5,crewPolicyOverride:{crewCount:60,crewThresholds:{minimum:15,optimal:30,excellent:45},
+        includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"},crewRoster:[{unitIndex:1,named:[{actorId:"sailor"}],hired:10},{unitIndex:2,named:[],hired:30}]});
+    const writes=[],journals=[];
+    let dialogs=0;
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],listeners:new Map(),append(...items){this.children.push(...items);},appendChild(n){this.children.push(n);return n;},addEventListener(n,f){this.listeners.set(n,f);},setAttribute(n,v){this[n]=v;}})};
+    const labels=node=>[node.textContent,...node.children.flatMap(labels)];
+    globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
+      dialogs++;const summary=labels(options.content).join(" ");
+      assert.match(summary,/below.minimum/i);
+      assert.match(summary,/Paid crew wages \(11 paid × 2 GP\/day\) 4 PP · 4 GP/);
+      assert.match(summary,/Fare components are before rounding/);
+      assert.match(options.yes?.label??"",/acknowledge/i);
+      assert.equal(options.no?.label,"Back to plan");
+      return false;
+    }}}}};
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},time:{worldTime:0},settings:{
+      get:(_module,key)=>key==="guidedGroupTransportation"?owned:undefined,
+      set:(...args)=>writes.push(args)}};
+    const from=point(0,0),to=point(300,0),end=point(400,0);
+    const atlas={revision:1,nodes:[{id:"start",...from},{id:"end",...to},{id:"final",...end}],
+      roads:[{id:"sea",name:"Sea passage",travelPresetId:"water-sea"},{id:"land",name:"Onward road"}],
+      segments:[{id:"segment",roadId:"sea",from:"start",to:"end",via:[]},{id:"onward",roadId:"land",from:"end",to:"final",via:[]}],
+      checkpoints:[{id:"dock",name:"Dock",nodeId:"start",roadId:"sea"},
+        {id:"port",name:"Port",nodeId:"end",roadId:"sea"}]};
+    const token={id:"party",x:-50,y:-50,width:1,height:1,moves:0,
+      canUserModify:()=>true,move:async()=>{token.moves++;throw Error("Unexpected native movement");},actor:{id:"group1",type:"group",system:{members:[
+      {actor:{id:"pc",name:"Traveler",type:"character"}},
+      {actor:{id:"sailor",name:"Sailor",type:"npc"}},
+      {actor:{id:"ship",name:"Warship",type:"vehicle"}}]}}};
+    const scene={id:"sea-scene",grid:{size:100,units:"mi"},getFlag:()=>undefined,canUserModify:()=>true};
+    const nav=new AtlasNavigationController({atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+      canvasProvider:()=>({ready:true,scene}),atlasPoint:(_v,_a,p)=>p,
+      journeyJournalStore:{save:async record=>{journals.push(structuredClone(record));throw Error("Test Journal boundary");}}});
+    nav.routeRevision=1;nav.syncPartyDeparture=()=>false;
+    nav.scene=scene;nav.sourceMode="party";nav.render=async()=>{};
+    nav.start=from;nav.end=end;
+    nav.result={status:"ok",start:from,end,distance:65,cost:65,
+      legs:[{kind:"road",roadId:"sea",segmentId:"segment",points:[from,to],distance:60,cost:60},
+        {kind:"road",roadId:"land",segmentId:"onward",points:[to,end],distance:5,cost:5}]};
+    nav.transferSelections[0]="owned|warship";
+    nav.transferLegOperations[0]="normal";
+    const original=JSON.stringify(owned);
+    const initial=nav.transportationTransitionPlan().legs[0];
+    const unitControls=()=>nav.renderOwnedOperatingUnits(initial,async()=>{throw Error("Unexpected edit");});
+    const unit=unitControls().children[1].children[0];
+    assert.equal(unit["data-atlas-travel-focus"],"owned-unit:owned|warship:ship:1");
+    nav.suspendedNativeSession={};
+    assert.equal(unitControls().children[1].children[0].disabled,true);
+    await assert.rejects(()=>nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:1}]),/GM/i);
+    let callbacks=0;
+    const oldUnits=nav.renderOwnedOperatingUnits(initial,async()=>{callbacks++;});
+    nav.suspendedNativeSession=null;
+    const liveUnits=nav.renderOwnedOperatingUnits(initial,async()=>{callbacks++;});
+    game.user.isGM=false;
+    liveUnits.children[1].children[0].listeners.get("change")();
+    oldUnits.children[1].children[0].listeners.get("change")();
+    assert.equal(callbacks,0,"old and disabled unit controls reject edits after role loss");
+    assert.equal(unitControls().children[1].children[0].disabled,true);
+    game.user.isGM=true;
+    assert.equal(initial.ownedUnitChoices.length,2);
+    assert.deepEqual(initial.operatedUnits,[{actorId:"ship",unitIndex:1},{actorId:"ship",unitIndex:2}]);
+    await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:1}]);
+    const leg=nav.transportationTransitionPlan().legs[0];
+    assert.deepEqual(leg.errors,[]);
+    assert.equal(leg.hours,12);
+    assert.equal(leg.serviceQuote.units,1);
+    assert.equal(leg.ownedDraft.units[0].unitIndex,1);
+    assert.equal(leg.ownedDraft.units[0].staffedCrew,11);
+    assert.equal(leg.ownedDraft.crewWagesCp,4400);
+    assert.equal(leg.serviceQuote.crewWagesCp,4400);
+    const deck=leg=>{const availability=nav.transportAvailability();
+      return nav.renderTravelersAndPace(nav.partyTravelSelection(availability.all),availability,{
+        singleChoice:leg.selectedOption,ownedLeg:leg});};
+    const flatten=node=>[node,...node.children.flatMap(flatten)];
+    const selectedDeck=flatten(deck(leg));
+    assert.ok(selectedDeck.some(n=>/1\/2 passenger seats/.test(n.textContent)),
+      "selected unit capacity must replace the full fleet capacity");
+    assert.ok(selectedDeck.some(n=>/5\.00 mph/.test(n.textContent)));
+    assert.ok(selectedDeck.some(n=>/2\/2 travelers/.test(n.textContent)));
+    assert.ok(selectedDeck.some(n=>/Sailor.*crew/i.test(n.textContent)));
+    const fixedCrew=selectedDeck.find(n=>n.type==="checkbox"&&/Sailor/.test(n["aria-label"]));
+    assert.ok(fixedCrew?.checked&&fixedCrew.disabled,"non-passenger crew follow their operated unit");
+    assert.deepEqual(nav.partySelectedIds,[]);
+    nav.partySelectionMode="selected";nav.partySelectedIds=[];
+    const crewOnly=flatten(deck(nav.transportationTransitionPlan().legs[0]));
+    assert.ok(crewOnly.some(n=>/1\/2 travelers/.test(n.textContent)));
+    assert.ok(crewOnly.some(n=>/0\/2 passenger seats/.test(n.textContent)));
+    nav.partySelectionMode="all";nav.partySelectedIds=[];
+    await nav.setCheckpointOperatedUnits([]);
+    const invalidDeck=flatten(deck(nav.transportationTransitionPlan().legs[0]));
+    assert.ok(invalidDeck.some(n=>/selected.unit.*unavailable/i.test(n.textContent)));
+    assert.ok(invalidDeck.some(n=>n.type==="checkbox"&&/Traveler/.test(n["aria-label"])));
+    assert.ok(!invalidDeck.some(n=>/\/4 passenger seats/.test(n.textContent)));
+    await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:1}]);
+    nav.transferLegOverrides[0]={selection:"owned|warship",overrides:{continuousEnabled:true}};
+    nav.transferLegOperations[0]="continuous";
+    const continuous=nav.transportationTransitionPlan().legs[0];
+    assert.deepEqual(continuous.errors,[]);
+    assert.equal(continuous.ownedDraft.dailyHours,24);
+    const continuousPanel=flatten(await nav.renderDestinationStage());
+    assert.ok(continuousPanel.some(n=>/Trip with 0 planned 8h Long Rest/.test(n.textContent)),
+      "continuous owned-leg playback must not insert a World travel-day rest");
+    assert.ok(continuousPanel.some(n=>/1\/2 passenger seats/.test(n.textContent)),
+      "the actual destination stage must use the selected-unit traveler deck");
+    const selectedTile=nodes=>nodes.find(n=>n.tag==="label"&&
+      n.children.some(c=>c.name==="atlas-navigation-travel-method"&&c.value==="owned|warship"&&c.checked));
+    assert.match(labels(selectedTile(continuousPanel)).join(" "),/1 operated unit.*1\/2 passenger seats/,
+      "the method card must show the same selected capacity as the deck");
+    await nav.setCheckpointOperatedUnits([]);
+    const emptyPanel=flatten(await nav.renderDestinationStage());
+    assert.ok(emptyPanel.some(n=>n.textContent==="Select at least one operating unit."),
+      "empty unit list gives the specific corrective action");
+    assert.deepEqual(nav.transportationTransitionPlan().legs[0].errors,["Select at least one operating unit."]);
+    assert.match(labels(selectedTile(emptyPanel)).join(" "),/selected.unit estimate unavailable/i);
+    assert.equal(emptyPanel.some(n=>n.className==="atlas-navigation-playback"),false,
+      "invalid operating-unit draft cannot advertise a playback duration");
+    await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:1}]);
+    token.actor.system.members.push(
+      {actor:{id:"extra1",name:"Extra traveler one",type:"character"}},
+      {actor:{id:"extra2",name:"Extra traveler two",type:"character"}});
+    const insufficient=nav.transportationTransitionPlan().legs[0];
+    assert.ok(insufficient.errors.some(e=>/seats/i.test(e)));
+    assert.equal(insufficient.hours,null,"insufficient seats cannot yield an actionable moving-time estimate");
+    assert.equal(insufficient.costCp,null);
+    const insufficientPanel=flatten(await nav.renderDestinationStage());
+    assert.equal(insufficientPanel.some(n=>n.className==="atlas-navigation-playback"),false);
+    assert.ok(insufficientPanel.some(n=>n.textContent==="Unavailable"));
+    await assert.rejects(()=>nav.startGuidedTravel(),/review|seats/i);
+    assert.equal(journals.length,0);
+    token.actor.system.members.splice(-2);
+    // Same real destination-stage controls on a land-to-water route.
+    // A physical mount uses animal accommodation, never another passenger seat.
+    const originalOwned=structuredClone(owned);
+    const mounted=setGroupTransportationMember(owned,"group1","horse",{
+      role:"mount",quantity:1,capacity:1,surface:"land",profileId:"warhorse"});
+    Object.assign(owned,mounted);
+    token.actor.system.members.push({actor:{id:"horse",name:"Warhorse",type:"npc"}});
+    nav.livestockDecisions={horse:1};
+    nav.transferLegOperations[0]="normal";
+    nav.transferLegOverrides[0]={selection:"owned|warship",overrides:{livestockCapacity:1}};
+    const mountedLeg=nav.transportationTransitionPlan().legs[0];
+    assert.deepEqual(mountedLeg.errors,[]);
+    assert.equal(mountedLeg.livestock.estimatedFareCp,0);
+    assert.equal(mountedLeg.livestock.resources[0].aboard,1);
+    const mountedPanel=labels(await nav.renderDestinationStage()).join(" ");
+    assert.equal((mountedPanel.match(/Physical mount boarding: 0 CP/g)??[]).length,1);
+    const previousConfirm=globalThis.foundry.applications.api.DialogV2.confirm;
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      const summary=labels(options.content).join(" ");
+      assert.match(summary,/Physical mount boarding 0 CP/);
+      assert.equal((summary.match(/Physical mount boarding/g)??[]).length,1);
+      assert.match(summary,/Warhorse ×1/);
+      return false;
+    };
+    assert.equal(await nav.startGuidedTravel(),false);
+    assert.equal(journals.length,0);
+    assert.equal(token.moves,0);
+    nav.livestockDecisions={horse:0};
+    assert.doesNotMatch(labels(await nav.renderDestinationStage()).join(" "),/Physical mount boarding:/);
+    globalThis.foundry.applications.api.DialogV2.confirm=previousConfirm;
+    token.actor.system.members.pop();
+    Object.assign(owned,originalOwned);
+    nav.livestockDecisions={};
+    delete nav.transferLegOverrides[0];
+    const shipSettings=owned.groups.group1.members.ship;
+    const priorScope=nav.checkpointOwnedDraft;
+    atlas.roads[0].travelPresetId="land-stone";
+    atlas.roads[1].travelPresetId="water-sea";
+    shipSettings.profileId="cart";shipSettings.surface="land";
+    nav.transferSelections[0]="owned|cart";
+    delete nav.transferLegOverrides[0];nav.transferLegOperations[0]="normal";
+    await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:1}]);
+    const landLeg=nav.transportationTransitionPlan().legs[0];
+    assert.equal(landLeg.surface,"land");assert.deepEqual(landLeg.errors,[]);
+    const landPanel=flatten(await nav.renderDestinationStage());
+    const cartTile=landPanel.find(n=>n.tag==="label"&&
+      n.children.some(c=>c.name==="atlas-navigation-travel-method"&&c.value==="owned|cart"&&c.checked));
+    assert.ok(cartTile,"current land leg uses a real selected method card");
+    assert.match(labels(cartTile).join(" "),/1 operated unit.*1\/2 passenger seats/);
+    atlas.roads[0].travelPresetId="water-sea";delete atlas.roads[1].travelPresetId;
+    shipSettings.profileId="warship";shipSettings.surface="water";
+    nav.transferSelections[0]="owned|warship";nav.checkpointOwnedDraft=priorScope;
+
+
+    delete nav.transferLegOverrides[0];nav.transferLegOperations[0]="normal";
+    assert.equal(await nav.startGuidedTravel(),false,"Cancel must not approve or save a Journey");
+    assert.equal(dialogs,1);assert.equal(journals.length,0);
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:2}]);return true;
+    };
+    await assert.rejects(()=>nav.startGuidedTravel(),/changed.*confirmation|review/i);
+    assert.equal(journals.length,0);
+    await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:1}]);
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      globalThis.game.user.isGM=false;return true;
+    };
+    await assert.rejects(()=>nav.startGuidedTravel(),/GM|changed.*confirmation/i);
+    assert.equal(journals.length,0);
+    globalThis.game.user.isGM=true;
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>true;
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    assert.equal(journals.length,1,"Only a confirmed, revalidated plan reaches the Journal");
+    const recorded=journals[0].legs[0];
+    assert.deepEqual(recorded.transport.ownedApproval,{...leg.ownedDraft,belowMinimumAcknowledged:true});
+    assert.deepEqual(recorded.participation.people.map(p=>[p.actorId,p.traveling,p.seats]),
+      [["pc",true,1],["sailor",true,0]]);
+    for(const edit of [
+      p=>{p.people=p.people.filter(person=>person.actorId!=="sailor");},
+      p=>{p.people[0].seats=2;},
+      p=>{p.people[0].methodKey="owned|walking";}
+    ]){
+      const tampered=structuredClone(journals[0]);edit(tampered.legs[0].participation);
+      assert.throws(()=>validateJourneyRecord(tampered),/crew|passenger seats|method/i);
+      const badItinerary={schemaVersion:1,scene:{name:"Sea",units:"mi"},
+        endpoints:{departure:recorded.departure,destination:recorded.destination},
+        measurements:{distance:recorded.distance,travelHours:recorded.movingHours,terrainAware:false},
+        travel:{speedPerHour:recorded.speedPerHour},directions:[],
+        transport:recorded.transport,participation:tampered.legs[0].participation};
+      assert.throws(()=>createJourneyRecord({sceneId:scene.id,tokenId:token.id,atlasRevision:1,
+        itinerary:badItinerary}),/crew|passenger seats|method/i);
+    }
+    assert.equal(token.moves,0);
+    // An empty passenger selection can travel with named non-passenger crew.
+    nav.partySelectionMode="selected";nav.partySelectedIds=[];
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    assert.equal(journals.length,2);
+    assert.deepEqual(journals[1].legs[0].participation.people.map(p=>[p.actorId,p.traveling,p.seats]),
+      [["pc",false,1],["sailor",true,0]]);
+    nav.partySelectionMode="all";nav.partySelectedIds=[];
+    // Resume an interrupted approved departure with changed wage policy.
+    // No native movement occurred yet, so its verified start anchor is intact.
+    const fullRoute=nav.result;
+    const saved=structuredClone(journals[0]);saved.status="interrupted";
+    nav.recoveryRecord=saved;nav.recoveryJournal={id:"existing-journey"};
+    nav.result={...fullRoute,end:to,distance:60,cost:60,legs:[fullRoute.legs[0]]};
+    nav.end=to;nav.travelMethod="warship";nav.transportArrangement="owned";
+    const storedShip=owned.groups.group1.members.ship;
+    storedShip.crewPolicyOverride.crewWageCpPerDay=900;
+    const restored=nav.transportationTransitionPlan().legs[0];
+    assert.deepEqual(restored.ownedApproval,recorded.transport.ownedApproval);
+    assert.equal(restored.costCp,0);
+    const savedBefore=structuredClone(nav.recoveryRecord);
+    const removedShip=token.actor.system.members.pop();
+    assert.throws(()=>nav.transportationTransitionPlan(),/approved owned operating units.*no longer available/i,
+      "recovery preview must fail closed before presenting an unavailable vessel");
+    assert.deepEqual(nav.recoveryRecord,savedBefore);
+    assert.equal(journals.length,2);
+    token.actor.system.members.push(removedShip);
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      const summary=labels(options.content).join(" ");
+      assert.match(summary,/Previously approved — no new fare/);
+      assert.doesNotMatch(summary,/Fare breakdown/);
+      assert.equal(options.yes?.label,"Resume leg");
+      assert.equal(options.no?.label,"Back to plan");
+      return true;
+    };
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>true;
+    assert.equal(journals.length,3);
+    const continued=journals[2].legs.at(-1);
+    assert.deepEqual(continued.transport.ownedApproval,recorded.transport.ownedApproval);
+    assert.deepEqual(continued.participation,recorded.participation);
+    assert.equal(continued.transport.estimatedFareCp,0);
+    assert.equal(continued.transport.continuation,true);
+    // Older voyages carry an approved operation without a staffing/tier
+    // snapshot. Their resume display must match the native operating rules.
+    const priorRecovery=nav.recoveryRecord,priorOperation=nav.transportOperation;
+    const legacy=structuredClone(saved);
+    delete legacy.legs[0].transport.ownedApproval;
+    delete legacy.legs[0].participation;
+    legacy.legs[0].transport.operation="continuous";
+    nav.recoveryRecord=legacy;nav.transportOperation="continuous";
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      const summary=labels(options.content).join(" ");
+      assert.match(summary,/Operating schedule: continuous · 24h\/day/);
+      assert.match(summary,/Previously approved — no new fare/);
+      assert.doesNotMatch(summary,/Fare breakdown/);
+      return false;
+    };
+    assert.equal(await nav.startGuidedTravel(),false);
+    assert.deepEqual(nav.recoveryRecord,legacy);
+    assert.equal(journals.length,3);assert.equal(token.moves,0);
+    nav.recoveryRecord=priorRecovery;nav.transportOperation=priorOperation;
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>true;
+    const removed=token.actor.system.members.splice(1,1)[0];
+    await assert.rejects(()=>nav.startGuidedTravel(),/roster changed|crew/i);
+    assert.equal(journals.length,3);
+    token.actor.system.members.splice(1,0,removed);
+    storedShip.crewPolicyOverride.crewWageCpPerDay=200;
+    nav.recoveryRecord=null;nav.recoveryJournal=null;
+    nav.result=fullRoute;nav.end=end;nav.travelMethod="walking";
+    assert.equal(leg.ownedDraft.belowMinimum,true);
+    assert.equal(leg.ownedDraft.belowMinimumAcknowledged,undefined);
+    assert.equal(leg.ownedApproval,undefined);
+    // Only a confirmed snapshot may drive the execution/recovery schedule.
+    const confirmed={...leg.ownedDraft,belowMinimumAcknowledged:true};
+    const guidedLeg={transport:{methodId:"warship",operation:confirmed.operation,ownedApproval:confirmed}};
+    const historical=nav.resolveCurrentLegRules({methodId:"warship",hoursPerDay:4},
+      leg.selectedOption,guidedLeg);
+    assert.equal(historical.dailyHours,confirmed.dailyHours,
+      "execution must use the approved day, not the changed World travel hours");
+    assert.equal(historical.overnightHours,confirmed.overnightHours);
+    const invalid={...guidedLeg,transport:{...guidedLeg.transport,
+      ownedApproval:{...confirmed,belowMinimumAcknowledged:false}}};
+    assert.throws(()=>nav.resolveCurrentLegRules({methodId:"warship",hoursPerDay:4},
+      leg.selectedOption,invalid),/acknowledg/i);
+
+    await assert.rejects(()=>nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:3}]),/unit/i);
+    await nav.setCheckpointOperatedUnits([]);
+    assert.ok(nav.transportationTransitionPlan().legs[0].errors.some(e=>/unit/i.test(e)));
+    await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:2}]);
+    token.actor.system.members.pop();
+    assert.ok(nav.transportationTransitionPlan().legs[0].errors.length,"a vanished fleet cannot authorize travel");
+    globalThis.game.user.isGM=false;
+    await assert.rejects(()=>nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:2}]),/GM/i);
+    assert.deepEqual(writes,[]);
+    assert.equal(JSON.stringify(owned),original);
+    // Finish a short owned checkpoint leg using the existing native movement
+    // fixture and durable Journal store, not a stubbed approval or plan.
+    globalThis.game.user.isGM=true;
+    token.actor.system.members.push({actor:{id:"ship",name:"Warship",type:"vehicle"}});
+    nav.result={...fullRoute,distance:35,cost:35,legs:[
+      {...fullRoute.legs[0],distance:30,cost:30},fullRoute.legs[1]]};
+    await nav.setCheckpointOperatedUnits([{actorId:"ship",unitIndex:1}]);
+    const committed=[];
+    nav.journeyJournalStore.save=async record=>{
+      committed.push(structuredClone(record));return {id:"owned-journey"};
+    };
+    nav.draw=()=>{};
+    token.move=async waypoints=>{
+      assert.ok(committed[0]?.legs[0]?.transport?.ownedApproval,
+        "approved owned evidence must be durable before native movement");
+      const last=waypoints.at(-1);
+      assert.ok(last.x<=250.0001,"never move past the approved Port");
+      token.moves++;token.x=last.x;token.y=last.y;return true;
+    };
+    assert.equal(await nav.startGuidedTravel(),true);
+    assert.ok(token.moves>0);
+    assert.equal(token.x,250);
+    assert.equal(nav.pendingTransfer?.checkpoint?.id,"port");
+    assert.equal(committed.at(-1).legs[0].completedPercent,100);
+    assert.equal(committed.at(-1).status,"paused");
+    assert.deepEqual(committed.at(-1).legs[0].transport.ownedApproval,
+      committed[0].legs[0].transport.ownedApproval);
+    assert.deepEqual(committed.at(-1).legs[0].participation,
+      committed[0].legs[0].participation);
+    assert.deepEqual(writes,[]);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("ordinary owned Cart selects exact units, reviews staffing and retains its approved service on recovery",async()=>{
+  const previous={game:globalThis.game,foundry:globalThis.foundry,document:globalThis.document};
+  try{
+    let owned=setGroupTransportationMember(defaultGroupTransportation(),"group1","cart",{
+      role:"unassigned",quantity:2,capacity:2,surface:"land",profileId:"cart",
+      speedMphOverride:4,costCpOverride:100,costBasisOverride:"day",costAppliesOverride:"unit",
+      crewPolicyOverride:{crewCount:6,crewThresholds:{minimum:3,optimal:4,excellent:5},
+        includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"},
+      crewRoster:[{unitIndex:1,named:[{actorId:"driver",duty:"Driver"}],hired:1},
+        {unitIndex:2,named:[],hired:3}]});
+    owned=setGroupTransportationMember(owned,"group1","slow",{
+      role:"unassigned",quantity:1,capacity:2,surface:"land",profileId:"cart",speedMphOverride:2});
+    const writes=[],journals=[];
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],listeners:new Map(),append(...items){this.children.push(...items);},appendChild(n){this.children.push(n);return n;},addEventListener(n,f){this.listeners.set(n,f);},setAttribute(n,v){this[n]=v;}})};
+    const flatten=node=>[node,...node.children.flatMap(flatten)];
+    const labels=node=>flatten(node).map(n=>n.textContent).join(" ");
+    let dialogs=0;
+    globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
+      dialogs++;assert.match(labels(options.content),/Driver/);
+      assert.ok(flatten(options.content).some(n=>n.className==="atlas-transport-approval-table"));
+      assert.match(labels(options.content),/Vehicle upkeep/);
+      assert.match(labels(options.content),/Paid crew wages/);
+      assert.match(labels(options.content),/5 GP/);
+      assert.match(options.yes?.label??"",/acknowledge/i);return false;
+    }}}}};
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},time:{worldTime:0},settings:{
+      get:(_m,key)=>key==="guidedGroupTransportation"?owned:undefined,
+      set:(...args)=>writes.push(args)}};
+    const from=point(0,0),to=point(300,0);
+    const atlas={revision:1,nodes:[{id:"start",...from},{id:"end",...to}],
+      roads:[{id:"land",name:"Trade Road",travelPresetId:"land-stone"}],
+      segments:[{id:"segment",roadId:"land",from:"start",to:"end",via:[]}],checkpoints:[]};
+    const token={id:"party",x:-50,y:-50,width:1,height:1,moves:0,canUserModify:()=>true,
+      move:async()=>{token.moves++;throw Error("Unexpected native movement");},
+      actor:{id:"group1",type:"group",system:{members:[
+        {actor:{id:"pc",name:"Traveler",type:"character"}},
+        {actor:{id:"driver",name:"Driver",type:"npc"}},
+        {actor:{id:"cart",name:"Cart",type:"vehicle"}},
+        {actor:{id:"slow",name:"Slow Cart",type:"vehicle"}}]}}};
+    const scene={id:"land-scene",grid:{size:100,units:"mi"},getFlag:()=>undefined,canUserModify:()=>true};
+    const nav=new AtlasNavigationController({atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+      canvasProvider:()=>({ready:true,scene}),atlasPoint:(_v,_a,p)=>p,
+      journeyJournalStore:{save:async record=>{journals.push(structuredClone(record));throw Error("Test Journal boundary");}}});
+    nav.routeRevision=1;nav.syncPartyDeparture=()=>false;
+    nav.scene=scene;nav.sourceMode="party";nav.render=async()=>{};
+    nav.start=from;nav.end=to;
+    nav.result={status:"ok",start:from,end:to,distance:12,cost:12,terrainAware:false,
+      legs:[{kind:"road",roadId:"land",segmentId:"segment",points:[from,to],distance:12,cost:12}]};
+    nav.travelMethod="cart";nav.transportArrangement="owned";
+    const original=JSON.stringify(owned),native=JSON.stringify(token.actor);
+    assert.equal(nav.ordinaryOwnedLeg().ownedUnitChoices.length,3);
+    await nav.setLandOperatedUnits([{actorId:"cart",unitIndex:1}]);
+    const draft=nav.ordinaryOwnedLeg();
+    assert.deepEqual(draft.errors,[]);
+    assert.equal(draft.ownedDraft.passengerCapacity,2);
+    assert.equal(draft.ownedDraft.passengerSeats,1);
+    assert.equal(draft.ownedDraft.movingHours,3);
+    assert.equal(draft.ownedDraft.speedMph,4);
+    assert.equal(draft.ownedDraft.totalCp,500);
+    assert.equal(nav.resolveTravel().travel.speed,4);
+    assert.equal(nav.assessTravelMethod().guided,true);
+    const panel=flatten(await nav.renderDestinationStage());
+    assert.ok(panel.some(n=>/1\/2 passenger seats/.test(n.textContent)));
+    assert.ok(panel.some(n=>/4\.00 mph/.test(n.textContent)));
+    assert.ok(panel.some(n=>/Driver.*crew/i.test(n.textContent)));
+    assert.ok(panel.some(n=>n.name==="atlas-owned-operating-unit"&&n.checked));
+    assert.equal(await nav.startGuidedTravel(),false);
+    assert.equal(dialogs,1);assert.equal(journals.length,0);
+    const originalConfirm=globalThis.foundry.applications.api.DialogV2.confirm;
+    await nav.setLandOperatedUnits([{actorId:"slow",unitIndex:1}]);
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      assert.match(labels(options.content),/roster unconfigured/i);
+      assert.doesNotMatch(labels(options.content),/null\/\d+ crew/);
+      assert.ok(flatten(options.content).some(n=>n.className==="atlas-transport-approval-table"));
+      return false;
+    };
+    assert.equal(await nav.startGuidedTravel(),false);
+    await nav.setLandOperatedUnits([{actorId:"cart",unitIndex:1}]);
+    const originalRoute=structuredClone(nav.result);
+    nav.result.distance=48;nav.result.cost=48;
+    nav.result.legs[0].distance=48;nav.result.legs[0].cost=48;
+    nav.transportJourneyOverrides={continuousEnabled:true};
+    let scheduled=nav.ordinaryOwnedLeg().ownedDraft;
+    assert.equal(scheduled.operation,"continuous");
+    assert.equal(scheduled.movingHours,12);
+    assert.equal(scheduled.billingDayHours,8);
+    assert.equal(scheduled.dailyHours,24);
+    assert.equal(scheduled.overnightHours,0);
+    assert.equal(scheduled.totalCp,1000);
+    assert.equal(nav.resolveTravelRules({methodId:"cart",hoursPerDay:8}).dailyHours,null);
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      assert.match(labels(options.content),/24h\/day/);
+      assert.match(labels(options.content),/1 PP/);return false;
+    };
+    assert.equal(await nav.startGuidedTravel(),false);
+    nav.transportJourneyOverrides={overtimeEnabled:true,overtimeExtraHours:4,overtimeMultiplier:1.5};
+    nav.transportOperation="overtime";
+    scheduled=nav.ordinaryOwnedLeg().ownedDraft;
+    assert.equal(scheduled.operation,"overtime");
+    assert.equal(scheduled.dailyHours,12);assert.equal(scheduled.overnightHours,12);
+    assert.equal(scheduled.baseCp,100);assert.equal(scheduled.crewWagesCp,400);
+    assert.equal(scheduled.overtimeCrewCp,300);assert.equal(scheduled.totalCp,800);
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      assert.match(labels(options.content),/12h\/day/);
+      assert.match(labels(options.content),/Overtime crew wages/);
+      assert.match(labels(options.content),/8 GP/);return false;
+    };
+    assert.equal(await nav.startGuidedTravel(),false);
+    assert.equal(journals.length,0);assert.equal(token.moves,0);assert.deepEqual(writes,[]);
+    nav.result=originalRoute;nav.transportJourneyOverrides=null;nav.transportOperation="normal";
+    globalThis.foundry.applications.api.DialogV2.confirm=originalConfirm;
+    await nav.setLandOperatedUnits([]);
+    assert.equal(nav.assessTravelMethod().guided,false);
+    assert.equal(flatten(await nav.renderDestinationStage()).some(n=>n.className==="atlas-navigation-playback"),false);
+    await assert.rejects(()=>nav.startGuidedTravel(),/unit|seat/i);
+    await nav.setLandOperatedUnits([{actorId:"cart",unitIndex:1}]);
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      await nav.setLandOperatedUnits([{actorId:"cart",unitIndex:2}]);return true;};
+    await assert.rejects(()=>nav.startGuidedTravel(),/changed|review/i);
+    assert.equal(journals.length,0);
+    await nav.setLandOperatedUnits([{actorId:"cart",unitIndex:1}]);
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{game.user.isGM=false;return true;};
+    await assert.rejects(()=>nav.startGuidedTravel(),/GM|changed/i);
+    assert.equal(journals.length,0);
+    game.user.isGM=true;
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>true;
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    const recorded=journals[0].legs[0];
+    assert.deepEqual(recorded.travelMethod.ownedApproval,{...draft.ownedDraft,belowMinimumAcknowledged:true});
+    assert.equal(recorded.speedPerHour,4);
+    assert.deepEqual(recorded.participation.people.map(p=>[p.actorId,p.traveling,p.seats]),
+      [["pc",true,1],["driver",true,0]]);
+    assert.equal(token.moves,0);
+    assert.deepEqual(writes,[]);assert.equal(JSON.stringify(token.actor),native);
+    assert.equal(JSON.stringify(owned),original);
+    const saved=structuredClone(journals[0]);saved.status="interrupted";
+    nav.recoveryRecord=saved;nav.recoveryJournal={id:"saved-cart"};
+    owned.groups.group1.members.cart.speedMphOverride=1;
+    owned.groups.group1.members.cart.crewPolicyOverride.crewWageCpPerDay=900;
+    assert.equal(nav.resolveTravel().travel.speed,4);
+    assert.equal(nav.resolveTravelRules({methodId:"cart",hoursPerDay:4}).dailyHours,8);
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    assert.equal(journals.length,2);
+    const continued=journals[1].legs.at(-1);
+    assert.deepEqual(continued.travelMethod.ownedApproval,recorded.travelMethod.ownedApproval);
+    assert.equal(continued.travelMethod.ownedContinuation,true);
+    assert.deepEqual(continued.participation,recorded.participation);
+    const removedCart=token.actor.system.members.splice(2,1)[0];
+    assert.equal(nav.assessTravelMethod().guided,false);
+    await assert.rejects(()=>nav.startGuidedTravel(),/owned operating units|no longer available/i);
+    assert.equal(journals.length,2);
+    assert.equal(token.moves,0);assert.deepEqual(writes,[]);
+    // Fresh ordinary land movement uses its durable approved snapshot, and
+    // only selected vehicles contribute physical animal accommodation.
+    token.actor.system.members.splice(2,0,removedCart);
+    nav.recoveryRecord=null;nav.recoveryJournal=null;nav.journeyJournal=null;
+    owned.groups.group1.members.cart.speedMphOverride=4;
+    owned.groups.group1.members.cart.crewPolicyOverride.crewWageCpPerDay=200;
+    token.actor.system.members.push({actor:{id:"horse",name:"Riding Horse",type:"npc"}});
+    owned=setGroupTransportationMember(owned,"group1","horse",{
+      role:"mount",quantity:2,capacity:1,surface:"land",profileId:"riding-horse"});
+    nav.transportJourneyOverrides={livestockCapacity:1};
+    await nav.setLandOperatedUnits([{actorId:"cart",unitIndex:1}]);
+    nav.livestockDecisions={horse:2};
+    assert.match(nav.ordinaryOwnedLeg().errors.join(" "),/insufficient animal accommodation/i);
+    assert.equal(nav.assessTravelMethod().guided,false);
+    nav.livestockDecisions={horse:1};
+    assert.equal(nav.ordinaryOwnedLeg().livestock.units,1);
+    assert.equal(nav.ordinaryOwnedLeg().livestock.estimatedFareCp,0);
+    assert.equal(nav.ordinaryOwnedLeg().ownedDraft.totalCp,500);
+    const mountPlan=nav.ordinaryOwnedLeg().livestock;
+    const mountPanel=labels(await nav.renderDestinationStage());
+    assert.equal((mountPanel.match(/Physical mount boarding: 0 CP/g)??[]).length,1);
+    nav.livestockDecisions={horse:0};
+    assert.doesNotMatch(labels(await nav.renderDestinationStage()),/Physical mount boarding:/);
+    nav.livestockDecisions={horse:1};
+    const snapshotBefore=JSON.stringify(token.actor),mountWrites=journals.length;
+    const assertMountReview=(options,recovered)=>{
+      const summary=labels(options.content);
+      assert.match(summary,/From\s+Party departure point.*Next stop\s+Selected map destination.*Final destination\s+Selected map destination/);
+      assert.match(summary,/Riding Horse ×1 \(1 mounts? · /);
+      assert.match(summary,/Animal accommodation: 1 spaces? per vehicle/);
+      assert.match(summary,/Staying behind: Riding Horse ×1/);
+      assert.match(summary,/Passenger seats: 1 \/ 2/);
+      if(recovered){
+        assert.match(summary,/Previously approved fare/);
+        assert.match(summary,/Previously approved — no new fare/);
+        assert.doesNotMatch(summary,/Fare breakdown|Physical mount boarding|Estimated animal fare/);
+        assert.equal(options.yes?.label,"Resume leg");
+      }else{
+        assert.match(summary,/No boarding fee on party-owned transport/);
+        assert.match(summary,/Physical mount boarding 0 CP/);
+        assert.equal((summary.match(/Physical mount boarding/g)??[]).length,1);
+        assert.match(summary,/5 GP/);
+      }
+      assert.equal(options.no?.label,"Back to plan");
+    };
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      assertMountReview(options,false);return false;
+    };
+    assert.equal(await nav.startGuidedTravel(),false);
+    assert.equal(journals.length,mountWrites);
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      assertMountReview(options,false);return true;
+    };
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    assert.equal(journals.length,mountWrites+1);
+    const mountedSaved=structuredClone(journals.at(-1));
+    assert.deepEqual(mountedSaved.legs[0].livestock,mountPlan);
+    mountedSaved.status="interrupted";
+    const mountedBefore=structuredClone(mountedSaved);
+    nav.recoveryRecord=mountedSaved;nav.recoveryJournal={id:"saved-cart-mounts"};
+    // Changed draft boarding/capacity must not reprice or relabel approved history.
+    nav.livestockDecisions={horse:0};nav.transportJourneyOverrides={livestockCapacity:0};
+    globalThis.foundry.applications.api.DialogV2.confirm=async options=>{
+      assertMountReview(options,true);return false;
+    };
+    assert.equal(await nav.startGuidedTravel(),false);
+    assert.deepEqual(nav.recoveryRecord,mountedBefore);
+    assert.equal(journals.length,mountWrites+1);
+    assert.equal(token.moves,0);assert.deepEqual(writes,[]);
+    assert.equal(JSON.stringify(token.actor),snapshotBefore);
+    nav.recoveryRecord=null;nav.recoveryJournal=null;nav.journeyJournal=null;
+    nav.livestockDecisions={horse:1};nav.transportJourneyOverrides={livestockCapacity:1};
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>true;
+    const committed=[],nativeBefore=JSON.stringify(token.actor);
+    nav.journeyJournalStore.save=async record=>{
+      committed.push(structuredClone(record));return {id:"owned-cart-journey"};
+    };
+    nav.draw=()=>{};
+    token.move=async waypoints=>{
+      assert.ok(committed[0]?.legs[0]?.travelMethod?.ownedApproval,
+        "the approved land staffing snapshot must be durable before native movement");
+      const last=waypoints.at(-1);
+      assert.ok(last.x<=250.0001);
+      token.moves++;token.x=last.x;token.y=last.y;return true;
+    };
+    assert.equal(await nav.startGuidedTravel(),true);
+    assert.ok(token.moves>0);assert.equal(token.x,250);
+    assert.equal(committed.at(-1).status,"completed");
+    assert.equal(committed.at(-1).legs[0].completedPercent,100);
+    assert.deepEqual(committed.at(-1).legs[0].travelMethod.ownedApproval,
+      committed[0].legs[0].travelMethod.ownedApproval);
+    assert.deepEqual(committed.at(-1).legs[0].participation,committed[0].legs[0].participation);
+    assert.equal(committed.at(-1).legs[0].livestock.resources[0].aboard,1);
+    assert.equal(committed.at(-1).legs[0].livestock.estimatedFareCp,0);
+    assert.equal(JSON.stringify(token.actor),nativeBefore);
+    assert.deepEqual(writes,[]);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("mixed owned Cart draft, confirmation, Journal and recovery share exact operating units",async()=>{
+  const previous={game:globalThis.game,foundry:globalThis.foundry,document:globalThis.document};
+  try{
+    let owned=setGroupTransportationMember(defaultGroupTransportation(),"group1","cart",{
+      role:"unassigned",quantity:2,capacity:2,surface:"land",profileId:"cart",
+      speedMphOverride:4,costCpOverride:100,costBasisOverride:"day",costAppliesOverride:"unit",
+      crewPolicyOverride:{crewCount:6,crewThresholds:{minimum:3,optimal:4,excellent:5},
+        includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"},
+      crewRoster:[{unitIndex:1,named:[{actorId:"driver",duty:"Driver"}],hired:1},
+        {unitIndex:2,named:[],hired:3}]});
+    owned=setGroupTransportationMember(owned,"group1","slow",{
+      role:"unassigned",quantity:1,capacity:2,surface:"land",profileId:"cart",speedMphOverride:2});
+    const writes=[],journals=[];
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],listeners:new Map(),append(...items){this.children.push(...items);},appendChild(n){this.children.push(n);return n;},addEventListener(n,f){this.listeners.set(n,f);},setAttribute(n,v){this[n]=v;}})};
+    const flatten=node=>[node,...node.children.flatMap(flatten)];
+    const labels=node=>flatten(node).map(n=>n.textContent).join(" ");
+    let dialogs=0;
+    globalThis.foundry={applications:{api:{DialogV2:{confirm:async options=>{
+      dialogs++;const summary=labels(options.content);
+      assert.match(summary,/Driver/);
+      const fares=flatten(options.content).find(n=>n.className==="atlas-transport-approval-fares");
+      assert.ok(fares,"staffed mixed costs use the same fare breakdown as single-method approval");
+      assert.match(labels(fares),/Cart.*Vehicle upkeep.*1 GP/);
+      assert.match(labels(fares),/Cart.*Paid crew wages.*4 GP/);
+      assert.match(summary,/rounded independently, then summed/);
+      assert.match(options.yes?.label??"",/acknowledge/i);
+      assert.equal(options.no?.label,"Back to plan");return false;
+    }}}}};
+    globalThis.game={user:{id:"gm",isGM:true},system:{id:"dnd5e"},time:{worldTime:0},settings:{
+      get:(_m,key)=>key==="guidedGroupTransportation"?owned:undefined,
+      set:(...args)=>writes.push(args)}};
+    const from=point(0,0),to=point(300,0);
+    const atlas={revision:1,nodes:[{id:"start",...from},{id:"end",...to}],
+      roads:[{id:"land",name:"Trade Road",travelPresetId:"land-stone"}],
+      segments:[{id:"segment",roadId:"land",from:"start",to:"end",via:[]}],checkpoints:[]};
+    const token={id:"party",x:-50,y:-50,width:1,height:1,moves:0,canUserModify:()=>true,
+      move:async()=>{token.moves++;throw Error("Unexpected native movement");},
+      actor:{id:"group1",type:"group",system:{members:[
+        {actor:{id:"pc",name:"Traveler",type:"character"}},
+        {actor:{id:"walker",name:"Walker",type:"character"}},
+        {actor:{id:"driver",name:"Driver",type:"npc"}},
+        {actor:{id:"cart",name:"Cart",type:"vehicle"}},
+        {actor:{id:"slow",name:"Slow Cart",type:"vehicle"}}]}}};
+    const scene={id:"land-scene",grid:{size:100,units:"mi"},getFlag:()=>undefined,canUserModify:()=>true};
+    const nav=new AtlasNavigationController({atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+      canvasProvider:()=>({ready:true,scene}),atlasPoint:(_v,_a,p)=>p,
+      journeyJournalStore:{save:async record=>{journals.push(structuredClone(record));throw Error("Test Journal boundary");}}});
+    nav.routeRevision=1;nav.syncPartyDeparture=()=>false;
+    nav.scene=scene;nav.sourceMode="party";nav.render=async()=>{};
+    nav.start=from;nav.end=to;
+    nav.result={status:"ok",start:from,end:to,distance:12,cost:12,terrainAware:false,
+      legs:[{kind:"road",roadId:"land",segmentId:"segment",points:[from,to],distance:12,cost:12}]};
+    nav.travelMethod="walking";nav.transportArrangement="owned";
+    nav.mixedKeys=["owned|walking","owned|cart"];
+    nav.mixedAssignments={pc:"owned|cart",walker:"owned|walking"};
+    const original=JSON.stringify(owned),native=JSON.stringify(token.actor);
+    await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]);
+    const draft=nav.mixedLandPlan();
+    const cart=draft.methods.find(m=>m.key==="owned|cart");
+    assert.equal(cart.units,1);assert.equal(cart.speedPerHour,4);
+    assert.equal(cart.seatsUsed,1);assert.equal(cart.ownedApproval.passengerCapacity,2);
+    assert.equal(cart.ownedApproval.units[0].paidCrew,2);
+    assert.equal(draft.travelers.find(t=>t.actorId==="driver").seatsNeeded,0);
+    assert.equal(nav.assessTravelMethod().guided,true);
+    const panel=flatten(await nav.renderDestinationStage());
+    assert.ok(panel.some(n=>n.name==="atlas-owned-operating-unit"&&n.checked));
+    assert.ok(panel.some(n=>/Driver.*Crew/i.test(n.textContent)));
+    assert.ok(panel.some(n=>/4\.00 mph.*1\/2 seats/.test(n.textContent)));
+    assert.equal(await nav.startGuidedTravel(),false);
+    assert.equal(dialogs,1);assert.equal(journals.length,0);
+    await nav.setMixedOperatedUnits("owned|cart",[]);
+    assert.equal(nav.assessTravelMethod().guided,false);
+    await assert.rejects(()=>nav.startGuidedTravel(),/Select at least one operating unit\./);
+    await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]);
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:2}]);return true;};
+    await assert.rejects(()=>nav.startGuidedTravel(),/changed|review/i);
+    await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]);
+    // A stale explicit unit must not expand to the other available Cart.
+    const originalMembers=token.actor.system.members;
+    token.actor.system.members=originalMembers.filter(m=>m.actor.id!=="cart");
+    assert.equal(nav.assessTravelMethod().guided,false);
+    const stalePanel=flatten(await nav.renderDestinationStage());
+    assert.ok(stalePanel.some(n=>n.textContent==="Review current available units"));
+    assert.ok(stalePanel.some(n=>n.textContent==="Unavailable"));
+    await assert.rejects(()=>nav.startGuidedTravel(),/unit|available|eligible/i);
+    await nav.setMixedOperatedUnits("owned|cart",[]);
+    assert.equal(nav.assessTravelMethod().guided,false,"review does not select an alternate fleet");
+    token.actor.system.members=originalMembers;
+    await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]);
+
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      globalThis.game.user.isGM=false;return true;};
+    await assert.rejects(()=>nav.startGuidedTravel(),/changed|GM/i);
+    globalThis.game.user.isGM=true;
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      token.canUserModify=()=>false;return true;};
+    await assert.rejects(()=>nav.startGuidedTravel(),/changed|permission/i);
+    token.canUserModify=()=>true;
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      token.actor.system.members=originalMembers.filter(m=>m.actor.id!=="driver");return true;};
+    await assert.rejects(()=>nav.startGuidedTravel(),/crew|roster|changed|eligible/i);
+    token.actor.system.members=originalMembers;
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>{
+      token.actor.system.members=originalMembers.filter(m=>m.actor.id!=="cart");return true;};
+    await assert.rejects(()=>nav.startGuidedTravel(),/unit|available|changed|eligible/i);
+    token.actor.system.members=originalMembers;
+    assert.equal(journals.length,0);
+    assert.equal(token.moves,0);
+    assert.deepEqual(writes,[]);
+
+    globalThis.foundry.applications.api.DialogV2.confirm=async()=>true;
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    const saved=structuredClone(journals[0]),leg=saved.legs[0];
+    assert.equal(leg.convoy.methods[1].ownedApproval.belowMinimumAcknowledged,true);
+    assert.deepEqual(leg.participation.people.map(p=>[p.actorId,p.traveling,p.seats,p.methodKey]),
+      [["pc",true,1,"owned|cart"],["walker",true,1,"owned|walking"],["driver",true,0,"owned|cart"]]);
+    assert.deepEqual(validateJourneyRecord(saved),saved);
+    assert.equal(token.moves,0);assert.deepEqual(writes,[]);
+    assert.equal(JSON.stringify(token.actor),native);assert.equal(JSON.stringify(owned),original);
+    const tampered=structuredClone(saved);tampered.legs[0].participation.people.at(-1).methodKey="owned|walking";
+    assert.throws(()=>validateJourneyRecord(tampered),/convoy|crew|method/i);
+    saved.status="interrupted";nav.recoveryRecord=saved;nav.recoveryJournal={id:"saved-mixed"};
+    owned.groups.group1.members.cart.crewPolicyOverride.crewWageCpPerDay=900;
+    const beforeRoleChange=owned;
+    owned=setGroupTransportationMember(owned,"group1","driver",{role:"ignore",quantity:1,capacity:null,surface:"land"});
+    assert.equal(nav.assessTravelMethod().guided,false);
+    await assert.rejects(()=>nav.startGuidedTravel(),/crew|roster|eligible/i);
+    assert.equal(journals.length,1);assert.equal(token.moves,0);
+    owned=beforeRoleChange;
+    globalThis.game.user.isGM=false;
+    await assert.rejects(()=>nav.startGuidedTravel(),/GM|permission|authorized/i);
+    globalThis.game.user.isGM=true;
+    assert.equal(nav.assessTravelMethod().guided,true);
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    assert.deepEqual(journals[1].legs.at(-1).convoy,leg.convoy);
+    assert.deepEqual(journals[1].legs.at(-1).participation,leg.participation);
+    const removedCart=token.actor.system.members.find(m=>m.actor.id==="cart");
+    token.actor.system.members=token.actor.system.members.filter(m=>m.actor.id!=="cart");
+    assert.equal(nav.assessTravelMethod().guided,false);
+    const unavailable=flatten(await nav.renderDestinationStage());
+    assert.ok(unavailable.some(n=>n.textContent==="Unavailable"));
+    assert.ok(unavailable.some(n=>/approved owned operating units are no longer available/i.test(n.textContent)));
+    await assert.rejects(()=>nav.startGuidedTravel(),/owned operating units|no longer available/i);
+    assert.equal(journals.length,2);assert.equal(token.moves,0);
+    // A prior land leg explicitly left a mount behind. Selected Cart Actors
+    // are not mounts and must not be rejected by the livestock continuity guard.
+    token.actor.system.members.push(removedCart,{actor:{id:"horse",name:"Horse",type:"npc"}});
+    owned=setGroupTransportationMember(owned,"group1","horse",{
+      role:"mount",quantity:1,capacity:1,surface:"land",profileId:"riding-horse"});
+    const priorFrom=point(-300,0);
+    const priorRoute={status:"ok",start:priorFrom,end:from,distance:12,cost:12,
+      terrainAware:false,legs:[{kind:"road",roadId:"prior",segmentId:"prior",
+        points:[priorFrom,from],distance:12,cost:12}]};
+    const priorItinerary=createNavigationItinerary({sceneId:scene.id,sceneUnits:"mi",
+      route:priorRoute,travel:{speed:3,methodId:"walking"}});
+    priorItinerary.livestock={schemaVersion:1,methodId:"walking",surface:"land",
+      units:1,capacityPerUnit:null,resources:[{actorId:"horse",name:"Horse",quantity:1,assignedTo:null,aboard:0}],estimatedFareCp:0};
+    const prior=createJourneyRecord({sceneId:scene.id,tokenId:token.id,atlasRevision:1,
+      itinerary:priorItinerary,journeyDestination:to});
+    prior.status="paused";prior.legs[0].completedPercent=100;
+    prior.legs[0].completedMovingHours=prior.legs[0].movingHours;
+    nav.recoveryRecord=prior;nav.recoveryJournal={id:"prior-land"};
+    nav.livestockDecisions={horse:0};
+    await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]);
+    assert.equal(nav.assessTravelMethod().guided,true);
+    await assert.rejects(()=>nav.startGuidedTravel(),/Test Journal boundary/);
+    assert.equal(journals.length,3);
+    assert.equal(journals[2].legs.at(-1).livestock.resources[0].aboard,0);
+    assert.deepEqual(journals[2].legs.at(-1).convoy.methods[1].resourceIds,["cart"]);
+    assert.equal(token.moves,0);assert.deepEqual(writes,[]);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("staffed mixed land convoy completes only its approved checkpoint leg with original crew and cost",async()=>{
+  const previous={game:globalThis.game,ui:globalThis.ui,foundry:globalThis.foundry,
+    document:globalThis.document};
+  try{
+    globalThis.document={createElement:tag=>({tag,style:{},children:[],
+      listeners:new Map(),textContent:"",
+      append(...nodes){this.children.push(...nodes);},
+      appendChild(node){this.children.push(node);},
+      addEventListener(name,handler){this.listeners.set(name,handler);},
+      setAttribute(){}})};
+    let confirmed=0;
+    globalThis.foundry={applications:{api:{DialogV2:{
+      confirm:async()=>{confirmed++;return true;}
+    }}}};
+    const owned=setGroupTransportationMember(defaultGroupTransportation(),"group1","cart",{
+      role:"unassigned",quantity:2,capacity:2,surface:"land",profileId:"cart",speedMphOverride:4,
+      costCpOverride:100,costBasisOverride:"day",costAppliesOverride:"unit",
+      crewPolicyOverride:{crewCount:6,crewThresholds:{minimum:3,optimal:4,excellent:5},
+        includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"},
+      crewRoster:[{unitIndex:1,named:[{actorId:"driver",duty:"Driver"}],hired:1}]});
+    globalThis.game={user:{id:"gm",isGM:true},users:{activeGM:{id:"gm"}},
+      system:{id:"dnd5e"},settings:{get:(_module,key)=>
+        key==="guidedGroupTransportation"?owned:
+        key==="guidedTravelSecondsPerHour"?2:
+        key==="guidedTravelAdvanceWorldTime"?false:undefined},
+      time:{worldTime:0}};
+    globalThis.ui={notifications:{error(message){throw Error(message);}}};
+    const cp=point(200,100);
+    const atlas={revision:7,
+      nodes:[{id:"a",...point(100,100)},{id:"dock",...cp},{id:"other",...point(300,100)}],
+      roads:[{id:"land",name:"Port Road"},
+        {id:"sea",name:"Strait",travelPresetId:"water-sea"}],
+      segments:[{id:"s1",roadId:"land",from:"a",to:"dock",via:[]},
+        {id:"s2",roadId:"sea",from:"dock",to:"other",via:[]}],
+      checkpoints:[{id:"port",name:"Port Barthos",nodeId:"dock",roadId:"land"}]};
+    const scene={id:"test-scene",name:"Paedor",grid:{size:100,units:"mi"},
+      canUserModify:()=>true};
+    const view={ready:true,scene};
+    let nativeMoves=0;
+    const token={id:"group",x:50,y:50,width:1,height:1,
+      actor:{id:"group1",name:"Party",type:"group",system:{members:[
+        {actor:{id:"pc1",name:"Walker",type:"character"}},
+        {actor:{id:"pc2",name:"Rider",type:"character"}},
+        {actor:{id:"cart",name:"Cart",type:"vehicle"}},
+        {actor:{id:"driver",name:"Driver",type:"npc"}}
+      ]}},
+      canUserModify:()=>true,move:async waypoints=>{
+        nativeMoves++;
+        const last=waypoints.at(-1);
+        token.x=last.x;token.y=last.y;
+        assert.ok(last.x<=150.0001,"never move past the port into the waterway");
+        return true;
+      }};
+    const full={status:"ok",start:point(100,100),end:point(300,100),
+      distance:20,cost:20,terrainAware:false,legs:[
+        {kind:"road",roadId:"land",segmentId:"s1",
+          points:[point(100,100),cp],distance:10,cost:10},
+        {kind:"road",roadId:"sea",segmentId:"s2",
+          points:[cp,point(300,100)],distance:10,cost:10}]};
+    const logs=[];
+    const journal={id:"saved-journey"};
+    const nav=new AtlasNavigationController({canvasProvider:()=>view,
+      atlasProvider:()=>atlas,atlasPoint:(_v,_a,p)=>p,
+      partyTokenProvider:()=>token,journeyJournalStore:{
+        save:async data=>{logs.push(structuredClone(data));return journal;},
+        find:()=>null
+      }});
+    nav.scene=scene;nav.sourceMode="party";nav.routeRevision=atlas.revision;
+    nav.start=full.start;nav.end=full.end;nav.result=full;
+    nav.syncPartyDeparture=()=>false;
+    nav.draw=()=>{};
+    nav.render=async()=>{
+      if(!nav.travelSession)return;
+      // Reproduce Foundry's immediate render after GM approval. This must use
+      // the current checkpoint leg, not the full land-water itinerary.
+      await nav._renderHTML();
+      if(nav.travelSession?.transportLeg){
+        assert.ok(Math.abs(nav.journeyTimeUI.travelHours-10/3)<1e-6);
+        assert.ok(Math.abs(nav.journeyTimeUI.plan.movingHours-10/3)<1e-6);
+      }
+    };
+    nav.resolveTravel=()=>({sceneUnit:"mi",travel:{speed:3}});
+    nav.itinerary=createNavigationItinerary({sceneId:scene.id,route:full,
+      travel:{speed:3},roadName:id=>id});
+    assert.ok(nav.transportAvailability().methods.some(m=>m.id==="cart"));
+    nav.toggleTravelMethodChoice("owned|cart",true);
+    nav.mixedAssignments={pc1:"owned|walking",pc2:"owned|cart"};
+    assert.deepEqual(nav.mixedKeys,["owned|walking","owned|cart"]);
+    await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]);
+    await nav.setMixedOperatedUnits("owned|cart",[]);
+    assert.equal(nav.assessTravelMethod().guided,false);
+    const flatten=n=>[n,...n.children.flatMap(flatten)];
+    const panel=flatten(await nav.renderDestinationStage());
+    assert.ok(panel.some(n=>n.textContent==="Unavailable"));
+    assert.ok(panel.some(n=>/time unavailable until travel method is valid/i.test(n.textContent)));
+    assert.equal(logs.length,0);assert.equal(nativeMoves,0);
+    globalThis.game.user.isGM=false;
+    await assert.rejects(()=>nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]),/GM/i);
+    globalThis.game.user.isGM=true;
+    await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]);
+    const plan=nav.transportationTransitionPlan();
+    assert.equal(plan.legs.length,2);
+    assert.equal(plan.legs[0].selectedOption.method.kind,"mixed");
+    assert.equal(plan.legs[0].convoy.movingHours,10/3);
+    assert.equal(plan.legs[0].convoy.totalCp,500);
+    assert.equal(plan.legs[0].convoy.methods[1].ownedApproval.passengerCapacity,2);
+    assert.equal(plan.legs[1].selectedOption,null);
+    assert.equal(logs.length,0);
+    assert.equal(nativeMoves,0);
+    assert.equal(await nav.startGuidedTravel(),true);
+    assert.equal(confirmed,1);
+    assert.ok(nativeMoves>0);
+    assert.equal(token.x,150);
+    assert.equal(token.y,50);
+    assert.equal(nav.pendingTransfer.checkpoint.name,"Port Barthos");
+    assert.equal(logs.at(-1).status,"paused");
+    assert.deepEqual(logs.at(-1).destination,full.end,
+      "the Journal retains the entire route's original Point B beyond Port Barthos");
+    assert.deepEqual(logs.at(-1).legs[0].destination,cp,
+      "the committed leg itself must end at the first checkpoint");
+    assert.equal(logs.at(-1).legs[0].completedPercent,100);
+    assert.equal(logs.at(-1).legs[0].transport.kind,"mixed");
+    assert.equal(logs.at(-1).legs[0].transport.estimatedFareCp,null);
+    const expected=structuredClone(plan.legs[0].convoy);
+    expected.methods[1].ownedApproval.belowMinimumAcknowledged=true;
+    assert.deepEqual(logs.at(-1).legs[0].convoy,expected);
+    assert.deepEqual(logs.at(-1).legs[0].participation.people.map(p=>[p.actorId,p.methodKey,p.seats]),
+      [["pc2","owned|cart",1],["pc1","owned|walking",1],["driver","owned|cart",0]]);
+    assert.deepEqual(validateJourneyRecord(logs.at(-1)),logs.at(-1));
+    assert.ok(logs[0].legs[0].convoy.methods[1].ownedApproval.belowMinimumAcknowledged);
+    assert.equal(logs.at(-1).routeTargets.targets[1].approvedTransport.arrangement,"mixed");
+    assert.equal(logs.at(-1).routeTargets.nextTargetIndex,2);
+    assert.equal(logs.filter(row=>row.legs[0].completedPercent>=99.999)
+      .every(row=>row.status==="paused"),true,
+    "the last confirmed land chunk must commit its checkpoint target together " +
+      "with its 100% Journal progress before any redraw can interrupt the finalizer");
+    assert.equal(nav.travelSession,null);
+    assert.equal(nav.result,null,"full future route is not active after arrival");
+  }finally{Object.assign(globalThis,previous);}
+});
+
+for(const scenario of ["mixed","mixed-final","continuous","overtime"])test(
+  scenario==="mixed-final"?"ordinary staffed mixed final native interval reconciles to terminal arrival without replay":
+  scenario==="mixed"?"ordinary staffed mixed native interruption reconciles only verified progress after reload":
+  "ordinary staffed owned "+scenario+" executes the approved schedule across native interruption and reload",async()=>{
+  const mixed=scenario.startsWith("mixed"),interruptFinal=scenario==="mixed-final";
+  const approvalOf=leg=>mixed?leg.convoy:leg.travelMethod.ownedApproval;
+  const previous={game:globalThis.game,foundry:globalThis.foundry,document:globalThis.document,
+    Hooks:globalThis.Hooks};
+  try{
+    const listeners=new Map(),writes=[];
+    let serial=0,advances=0,dialogs=0,moves=0,record=null,failConfirmation=false;
+    const restHolds=[];
+    let restNotices=0;
+    globalThis.Hooks={on(name,fn){listeners.set(name,fn);return fn;},
+      off(name,fn){assert.equal(listeners.get(name),fn);listeners.delete(name);}};
+    globalThis.foundry={utils:{randomID:()=>"MixedNative"+String(++serial).padStart(5,"0")},
+      applications:{api:{DialogV2:{confirm:async options=>{
+        if(options.window?.title==="Notify players: rest complete?"){restNotices++;return false;}
+        dialogs++;return true;
+      }}}}};
+    globalThis.document={createElement:tag=>({tag,style:{},textContent:"",children:[],
+      append(...nodes){this.children.push(...nodes);},
+      appendChild(n){this.children.push(n);return n;},addEventListener(){},setAttribute(){}})};
+    const owned=setGroupTransportationMember(defaultGroupTransportation(),"group1","cart",{
+      role:"unassigned",quantity:2,capacity:2,surface:"land",profileId:"cart",
+      speedMphOverride:4,costCpOverride:100,costBasisOverride:"day",costAppliesOverride:"unit",
+      crewPolicyOverride:{crewCount:6,crewThresholds:{minimum:3,optimal:4,excellent:5},
+        includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"},
+      crewRoster:[{unitIndex:1,named:[{actorId:"driver",duty:"Driver"}],hired:1}]});
+    globalThis.game={user:{id:"gm",isGM:true},users:{activeGM:{id:"gm"}},system:{id:"dnd5e"},
+      time:{worldTime:1000,async advance(seconds){advances++;this.worldTime+=seconds;}},
+      settings:{get:(_m,key)=>key==="guidedGroupTransportation"?owned:
+        key==="guidedTravelAdvanceWorldTime"?true:
+        key==="guidedTravelSecondsPerHour"?2:undefined,set:(...args)=>writes.push(args)}};
+    const from=point(100,100),to=point(400,100);
+    const atlas={revision:1,nodes:[{id:"start",...from},{id:"end",...to}],
+      roads:[{id:"land",name:"Trade Road",travelPresetId:"land-stone"}],
+      segments:[{id:"segment",roadId:"land",from:"start",to:"end",via:[]}],checkpoints:[]};
+    const token={id:"party",x:50,y:50,width:1,height:1,canUserModify:()=>true,
+      getCompleteMovementPath:path=>path,stopMovement:()=>true,
+      actor:{id:"group1",type:"group",system:{members:[
+        {actor:{id:"pc",name:"Traveler",type:"character"}},
+        {actor:{id:"walker",name:"Walker",type:"character"}},
+        {actor:{id:"driver",name:"Driver",type:"npc"}},
+        {actor:{id:"cart",name:"Cart",type:"vehicle"}}]}},
+      async move(_waypoints,options){
+        moves++;
+        const pending=record.pendingNativeMove;
+        assert.equal(pending.operationId,options.id);
+        assert.ok((mixed?record.legs[0].convoy.methods[1].ownedApproval:
+          record.legs[0].travelMethod.ownedApproval).belowMinimumAcknowledged);
+        if(!mixed)assert.equal(record.legs.at(-1).travelMethod.operation,scenario);
+        assert.equal(pending.nativePath.length,2,"straight bounded interval");
+        const partial=moves===1;
+        const finalInterrupted=interruptFinal&&!partial&&pending.completedPercent>=99.999;
+        const destination=partial?point((pending.from.x+pending.to.x)/2,pending.from.y):pending.to;
+        const movement={id:options.id,state:partial?"stopped":"completed",origin:pending.from,destination,
+          constrained:false,passed:{waypoints:[{...destination,movementId:options.id}]},
+          pending:{waypoints:[]},chain:[],animation:{ended:Promise.resolve()}};
+        if(!partial)assert.notEqual(listeners.get("preMoveToken")?.(this,movement),false);
+        this.x=destination.x;this.y=destination.y;this.movement=movement;
+        if(!partial&&!finalInterrupted){
+          listeners.get("moveToken")?.(this,movement);
+          listeners.get("updateToken")?.(this,{x:this.x,y:this.y});
+        }
+        return !partial&&!finalInterrupted;
+      }};
+    const scene={id:"land-scene",grid:{size:100,units:"mi"},getFlag:()=>undefined,
+      tokens:{get:id=>id===token.id?token:null},canUserModify:()=>true};
+    const route=(start,end)=>{
+      const distance=(end.x-start.x)*(mixed?12:64)/300;
+      return {status:"ok",start,end,distance,cost:distance,terrainAware:false,
+        legs:[{kind:"road",roadId:"land",segmentId:"segment",points:[start,end],distance,cost:distance}]};
+    };
+    const journal={id:"mixed-native-journey",canUserModify:()=>true,getFlag:()=>structuredClone(record)};
+    const createController=()=>{
+      const nav=new AtlasNavigationController({atlasProvider:()=>atlas,partyTokenProvider:()=>token,
+        canvasProvider:()=>({ready:true,scene}),atlasPoint:(_v,_a,p)=>p,
+        routeCalculator:(_v,_s,_a,start,end)=>route(start,end),
+        restHoldFactory:ms=>{restHolds.push(ms);return {finished:Promise.resolve(true),cancel(){}};},
+        journeyJournalStore:{find:()=>null,save:async next=>{
+          if(failConfirmation&&!next.pendingNativeMove)throw Error("Test confirmation write failure");
+          record=structuredClone(next);return journal;
+        }}});
+      nav.scene=scene;nav.sourceMode="party";nav.routeRevision=atlas.revision;
+      nav.draw=()=>{};nav.render=async()=>{};
+      return nav;
+    };
+    const nav=createController();
+    nav.start=from;nav.end=to;nav.result=route(from,to);
+    nav.syncPartyDeparture=()=>false;
+    nav.travelMethod=mixed?"walking":"cart";nav.transportArrangement="owned";
+    if(mixed){
+      nav.mixedKeys=["owned|walking","owned|cart"];
+      nav.mixedAssignments={pc:"owned|cart",walker:"owned|walking"};
+      await nav.setMixedOperatedUnits("owned|cart",[{actorId:"cart",unitIndex:1}]);
+    }else{
+      nav.transportJourneyOverrides=scenario==="continuous"?{continuousEnabled:true}:
+        {overtimeEnabled:true,overtimeExtraHours:4,overtimeMultiplier:1.5};
+      nav.transportOperation=scenario;
+      await nav.setLandOperatedUnits([{actorId:"cart",unitIndex:1}]);
+      const draft=nav.ordinaryOwnedLeg().ownedDraft;
+      assert.equal(draft.movingHours,16);
+      assert.equal(draft.dailyHours,scenario==="continuous"?24:12);
+      assert.equal(draft.billingDayHours,scenario==="continuous"?8:12);
+    }
+    const native=JSON.stringify(token.actor);
+    assert.equal(await nav.startGuidedTravel(),false);
+    assert.equal(moves,1);assert.equal(dialogs,1);assert.equal(advances,0);
+    assert.equal(record.status,"interrupted");
+    assert.equal(record.legs[0].completedPercent,0);
+    const pending=structuredClone(record.pendingNativeMove);
+    const approved=structuredClone(approvalOf(record.legs[0]));
+    const manifest=structuredClone(record.legs[0].participation);
+    assert.ok(pending.worldAdvanceSeconds>0);
+    const retry=createController();
+    retry.recoverableJourney=journal;
+    assert.throws(()=>retry.recoverSavedJourney(),/stopped during native checkpoint/);
+    const unreconciled=structuredClone(record);
+    token.canUserModify=()=>false;
+    await assert.rejects(()=>retry.recoverSavedJourneyWithNativeReview(),/stopped during native checkpoint/);
+    assert.deepEqual(record,unreconciled);
+    assert.equal(advances,0);assert.equal(moves,1);
+    token.canUserModify=()=>true;
+    failConfirmation=true;
+    await assert.rejects(()=>retry.recoverSavedJourneyWithNativeReview(),/Test confirmation write failure/);
+    assert.ok(record.pendingNativeMove.partialEvidence);
+    assert.equal(advances,1);
+    assert.equal(game.time.worldTime,1000+Math.round(pending.worldAdvanceSeconds/2));
+    // A new controller models reload after the durable receipt and clock
+    // advancement, with Foundry's transient movement ID gone.
+    token.movement={id:"",state:"completed"};
+    owned.groups.group1.members.cart.crewPolicyOverride.crewWageCpPerDay=900;
+    failConfirmation=false;
+    const reloaded=createController();
+    reloaded.recoverableJourney=journal;
+    assert.equal(await reloaded.recoverSavedJourneyWithNativeReview(),true);
+    assert.equal(advances,1);assert.equal(moves,1);assert.equal(dialogs,1);
+    assert.equal(record.pendingNativeMove,null);
+    assert.equal(record.legs.length,1);
+    assert.ok(Math.abs(record.legs[0].completedPercent-pending.completedPercent/2)<1e-6);
+    assert.ok(Math.abs(record.legs[0].completedMovingHours-pending.movingHours/2)<1e-6);
+    assert.equal(record.legs[0].worldTravelSeconds,Math.round(pending.worldAdvanceSeconds/2));
+    assert.deepEqual(approvalOf(record.legs[0]),approved);
+    assert.deepEqual(record.legs[0].participation,manifest);
+    assert.deepEqual(record.destination,to);
+    assert.deepEqual(reloaded.recoveryRecord,record);
+    assert.equal(reloaded.assessTravelMethod().guided,true);
+    const originalLeg=structuredClone(record.legs[0]);
+    const expectedRemainingHours=route(point(token.x+50,token.y+50),to).distance/
+      originalLeg.speedPerHour;
+    if(!mixed){
+      assert.equal(approved.movingHours,16);
+      assert.equal(approved.baseCp,200);
+      assert.equal(approved.crewWagesCp,800);
+      assert.equal(approved.overtimeCrewCp,scenario==="overtime"?300:0);
+      assert.equal(approved.totalCp,scenario==="overtime"?1300:1000);
+    }
+    // A valid land route with the same endpoints is not a new approval.
+    // Distinct authored segment identity must be rejected on continuation,
+    // for both single-owned and mixed-owned ordinary travel.
+    const originalRoute=reloaded.result;
+    atlas.segments.push({...atlas.segments[0],id:"alternate"});
+    reloaded.result={...originalRoute,legs:originalRoute.legs.map(leg=>({...leg,segmentId:"alternate"}))};
+    const beforeReview=structuredClone(record),beforeMoves=moves,beforeClock=game.time.worldTime;
+    assert.equal(reloaded.assessTravelMethod().guided,false,"an alternate road segment is not the approved route");
+    await assert.rejects(()=>reloaded.startGuidedTravel(),/approved route|road-sequence-changed/i);
+    assert.deepEqual(record,beforeReview);assert.equal(moves,beforeMoves);
+    assert.equal(game.time.worldTime,beforeClock);assert.equal(dialogs,1);
+    atlas.segments.pop();reloaded.result=originalRoute;
+    if(scenario==="overtime"){
+      // At the retained 12-hour travel-day boundary, explicit GM approval
+      // alone may add the 12-hour overnight break before the next move.
+      const running=reloaded.startGuidedTravel();
+      let settled=false;
+      void running.then(()=>{settled=true;},()=>{settled=true;});
+      try{
+        for(let i=0;i<2000&&!settled&&reloaded.travelSession?.phase!=="rest-choice";i++)
+          await Promise.resolve();
+        if(settled)await running;
+        assert.equal(reloaded.travelSession?.phase,"rest-choice");
+        assert.equal(reloaded.travelSession.schedule.rules.dailyHours,12);
+        assert.ok(Math.abs(reloaded.travelSession.schedule.todayHours-12)<1e-6);
+        assert.ok(Math.abs(game.time.worldTime-1000-12*3600)<=1);
+        const atRest=structuredClone(record),position=point(token.x,token.y),moveCount=moves;
+        assert.equal(reloaded.chooseDailyTravelBreak("overnight"),true);
+        assert.deepEqual(record,atRest);
+        assert.deepEqual(point(token.x,token.y),position);
+        assert.equal(moves,moveCount);
+        assert.equal(await running,true);
+      }finally{
+        if(!settled){reloaded.stopGuidedTravel();await running.catch(()=>{});}
+      }
+    }else assert.equal(await reloaded.startGuidedTravel(),!interruptFinal);
+    if(interruptFinal){
+      assert.equal(record.status,"interrupted");
+      assert.ok(record.pendingNativeMove?.completedPercent>=99.999);
+      const finalPending=structuredClone(record);
+      const priorClock=game.time.worldTime,priorMoves=moves;
+      const finalRecovery=createController();
+      finalRecovery.recoverableJourney=journal;
+      // A preceding transfer can retain an authored Map Marker ID on the
+      // final ordinary land target. It is not an intermediate transfer.
+      // Characterize the read-only candidate with that valid target form.
+      const markerTarget=structuredClone(finalPending);
+      markerTarget.routeTargets.targets.at(-1).checkpointId="end-marker";
+      atlas.checkpoints.push({id:"end-marker",name:"Destination Marker",nodeId:"end",roadId:"land"});
+      assert.equal(finalRecovery.boundedNativeArrival(markerTarget)?.record.status,"completed");
+      markerTarget.routeTargets.targets.at(-1).checkpointId="missing-marker";
+      assert.equal(finalRecovery.boundedNativeArrival(markerTarget),null);
+      atlas.checkpoints.pop();
+      assert.deepEqual(record,finalPending,"candidate review must not write the saved Journey");
+      // A coordinate-only Point B must match both the approved leg and
+      // the final saved A/B/C target; a conflicting target cannot be skipped.
+      record.routeTargets.targets.at(-1).point.x+=50;
+      assert.equal(finalRecovery.boundedNativeArrival(record),null);
+      await assert.rejects(()=>finalRecovery.recoverSavedJourneyWithNativeReview(),/stopped during native checkpoint/);
+      assert.equal(game.time.worldTime,priorClock);
+      record=structuredClone(finalPending);
+      const beforeFinalAdvance=advances;
+      failConfirmation=true;
+      await assert.rejects(()=>finalRecovery.recoverSavedJourneyWithNativeReview(),/Test confirmation write failure/);
+      assert.equal(record.status,"interrupted");
+      assert.ok(record.pendingNativeMove.arrivalEvidence);
+      assert.equal(advances,beforeFinalAdvance+1);
+      assert.equal(game.time.worldTime,priorClock+finalPending.pendingNativeMove.worldAdvanceSeconds);
+      assert.equal(writes.filter(([,key,pulse])=>key==="atlasAnnouncementPulse"&&
+        pulse.type==="destination.reached").length,0,"no arrival announcement before durable completion");
+      token.movement={id:"",state:"completed"};
+      failConfirmation=false;
+      const finalReload=createController();
+      finalReload.recoverableJourney=journal;
+      assert.equal(await finalReload.recoverSavedJourneyWithNativeReview(),true);
+      assert.equal(finalReload.completedRoute,true);
+      assert.deepEqual(finalReload.completedRecord,record);
+      assert.equal(finalReload.recoverableJourney,null);
+      assert.equal(finalReload.pendingTransfer,null);
+      assert.equal(moves,priorMoves);
+      assert.equal(advances,beforeFinalAdvance+1);
+      assert.equal(game.time.worldTime,priorClock+finalPending.pendingNativeMove.worldAdvanceSeconds);
+      await assert.rejects(()=>finalReload.startGuidedTravel(),/Journey is completed/);
+    }
+    assert.equal(record.status,"completed");
+    assert.equal(record.pendingNativeMove,null);
+    assert.equal(record.legs.length,2,"the remainder is a continuation of one approval");
+    assert.deepEqual(record.legs[0],originalLeg);
+    assert.deepEqual(approvalOf(record.legs[1]),approved);
+    if(!mixed)assert.equal(record.legs[1].travelMethod.ownedContinuation,true);
+    assert.deepEqual(record.legs[1].participation,manifest);
+    assert.equal(record.legs[1].completedPercent,100);
+    assert.equal(record.arrivedWorldTime,game.time.worldTime);
+    assert.equal(token.x,to.x-50);assert.equal(token.y,to.y-50);
+    assert.deepEqual(record.destination,to);
+    assert.equal(record.routeTargets.nextTargetIndex,record.routeTargets.targets.length);
+    assert.equal(dialogs,mixed?1:2,"single-owned resume reviews the original approval, never a new fare");
+    assert.ok(Math.abs(record.legs[1].completedMovingHours-expectedRemainingHours)<1e-6);
+    // The approved interval credits its proven native fraction. The new
+    // route is measured from the native position at the SAME approved pace.
+    // A rounded native endpoint can differ from its logical pixel length.
+    const expectedMoving=originalLeg.completedMovingHours+expectedRemainingHours;
+    const roundedPixelDrift=Math.abs(pending.to.x-pending.from.x-pending.nativeDistance)/2;
+    const roundingHours=roundedPixelDrift*originalLeg.movingHours/(to.x-from.x);
+    assert.ok(Math.abs(expectedMoving-originalLeg.movingHours)<=roundingHours+1e-6);
+    assert.ok(Math.abs(record.legs.reduce((sum,leg)=>sum+leg.completedMovingHours,0)-expectedMoving)<1e-6);
+    const restSeconds=scenario==="overtime"?12*3600:0;
+    assert.equal(record.legs.reduce((sum,leg)=>sum+leg.worldRestSeconds,0),restSeconds);
+    assert.equal(record.legs.reduce((sum,leg)=>sum+leg.worldTravelSeconds,0),
+      game.time.worldTime-1000-restSeconds);
+    assert.equal(game.time.worldTime-1000-restSeconds,
+      Math.round(pending.worldAdvanceSeconds/2)+Math.round(expectedRemainingHours*3600));
+    const events=record.legs.flatMap(leg=>leg.events);
+    assert.deepEqual(events.map(e=>[e.action,e.hours]),scenario==="overtime"?[["overnight",12]]:[]);
+    assert.deepEqual(restHolds,scenario==="overtime"?[24000]:[]);
+    assert.equal(restNotices,scenario==="overtime"?1:0);
+    const html=formatJourneyJournalHTML(record);
+    assert.equal((html.match(mixed?/Estimated transportation cost:/g:/Original estimated total:/g)??[]).length,1);
+    assert.match(html,mixed?/Continuing previously approved mixed service; no new fare/:
+      /Continuing previously approved owned service; no new fare/);
+    assert.equal(JSON.stringify(token.actor),native);
+    // Only committed Journey announcements may write settings.
+    assert.ok(writes.every(([scope,key])=>scope==="fvtt-atlas-navigation"&&key==="atlasAnnouncementPulse"));
+    assert.deepEqual(writes.map(([, ,pulse])=>pulse.type),scenario==="overtime"?
+      ["journey.started","break.started","break.ended","destination.reached"]:
+      ["journey.started","destination.reached"]);
+    assert.equal(listeners.size,0);
+  }finally{Object.assign(globalThis,previous);}
+});
+
+test("planner replacement restores only the matching enabled keyboard control inside its own content",()=>{
+  const nav=Object.create(AtlasNavigationController.prototype);
+  const key="traveler-move:cass";
+  for(const mode of ["matched","disabled","missing","external","hidden","ambiguous"]){
+    let calls=0;
+    const previous={getAttribute:name=>name==="data-atlas-travel-focus"?key:null};
+    const control={getAttribute:previous.getAttribute,disabled:mode==="disabled",
+      closest:()=>mode==="hidden"?{}:null,
+      focus(options){assert.equal(options.preventScroll,true);calls++;}};
+    const oldDocument=globalThis.document;
+    globalThis.document={activeElement:previous};
+    try{
+      const content={scrollTop:24,contains:node=>mode!=="external"&&node===previous,
+        querySelectorAll:selector=>selector==="[data-atlas-travel-focus]"?
+          mode==="missing"?[]:mode==="ambiguous"?[control,control]:[control]:[],
+        replaceChildren(){this.scrollTop=0;}};
+      nav._replaceHTML({},content);
+      assert.equal(calls,mode==="matched"?1:0,mode);
+      assert.equal(content.scrollTop,24);
+    }finally{globalThis.document=oldDocument;}
+  }
+});
+
+test("stale planner controls cannot edit the draft after GM authority or Journey state changes",()=>{
+  const previous={document:globalThis.document,game:globalThis.game};
+  try{
+    globalThis.document={createElement:tag=>({
+      tag,children:[],style:{},listeners:new Map(),hidden:false,
+      append(...items){this.children.push(...items);},
+      addEventListener(name,fn){this.listeners.set(name,fn);},
+      setAttribute(name,value){this[name]=value;},focus(){}
+    })};
+    let writes=0,renders=0;
+    globalThis.game={settings:{get:()=>undefined,set:()=>writes++},
+      system:{id:"dnd5e"},user:{isGM:true}};
+    const nav=new AtlasNavigationController();
+    nav.scene={id:"scene",grid:{units:"mi",size:100}};
+    nav.sourceMode="party";nav.travelMethod="walking";nav.transportArrangement="owned";
+    nav.render=()=>{renders++;};nav.resolveTravel=()=>({travel:{speed:3}});
+    const roster={travelers:2,members:[
+      {actorId:"cass",actorName:"Cassian",actorType:"character",role:"passenger",needsSeat:true,quantity:1},
+      {actorId:"luc",actorName:"Lucious",actorType:"character",role:"passenger",needsSeat:true,quantity:1}
+    ]};
+    const selection={previewRoster:roster,selectedIds:["cass","luc"],partial:false};
+    const walking={id:"walking",name:"Walking",kind:"foot",surface:"land"};
+    const cart={id:"cart",name:"Cart",kind:"vehicle",surface:"land",speedMph:4,capacity:2,
+      hireCostCp:100,hireBasis:"trip",hireApplies:"unit",hireUnlimited:true};
+    const available={methods:[walking,cart]};
+    nav.mixedKeys=["owned|walking","hire|cart"];
+    nav.mixedLandChoices=()=>[
+      {key:"owned|walking",method:walking,arrangement:"owned",units:1},
+      {key:"hire|cart",method:cart,arrangement:"hire",units:1}];
+    nav.mixedOwnedLegs=()=>[];
+    nav.mixedAssignments={cass:"hire|cart",luc:"owned|walking"};
+    const flat=node=>[node,...node.children.flatMap(flat)];
+    const snapshot=()=>JSON.stringify({selection:nav.partySelectionMode,ids:nav.partySelectedIds,
+      assignments:nav.mixedAssignments,units:nav.mixedUnits,pace:nav.convoyPace,roster});
+    for(const lock of ["player","moving","preparing","suspended"]){
+      game.user.isGM=true;
+      nav.travelSession=null;nav.journalStarting=false;nav.suspendedNativeSession=null;
+      const controls=flat(nav.renderTravelersAndPace(selection,available));
+      const unit=controls.find(n=>n["aria-label"]==="Units of Cart");
+      const move=controls.find(n=>n.title==="Move Lucious");
+      const chooser=controls.find(n=>n["aria-label"]==="Destination method for Lucious");
+      const radio=controls.filter(n=>n.type==="radio")[1];
+      assert.ok(unit&&move&&chooser&&radio,lock);
+      move.listeners.get("click")();
+      const before=snapshot(),renderBefore=renders;
+      if(lock==="player")game.user.isGM=false;
+      if(lock==="moving")nav.travelSession={};
+      if(lock==="preparing")nav.journalStarting=true;
+      if(lock==="suspended")nav.suspendedNativeSession={};
+      chooser.value="hire|cart";chooser.listeners.get("change")();
+      unit.value="2";unit.listeners.get("change")();
+      radio.checked=true;radio.listeners.get("change")();
+      assert.equal(snapshot(),before,lock+" may not edit the previous draft");
+      assert.equal(renders,renderBefore);
+      const fresh=flat(nav.renderTravelersAndPace(selection,available));
+      assert.ok(fresh.filter(n=>["button","input","select"].includes(n.tag)).every(n=>n.disabled),lock);
+    }
+    assert.equal(writes,0);
+  }finally{Object.assign(globalThis,previous);}
 });

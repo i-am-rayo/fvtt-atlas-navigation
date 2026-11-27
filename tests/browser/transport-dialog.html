@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Atlas transport dialog browser regression</title></head>
+<body><output id="result">PENDING</output>
+<script type="module">
+import {AtlasGroupTransportationSettings} from "../../scripts/navigation-group-transport-settings.js";
+import {AtlasTransportationSettings,openTransportationMethodEditor} from "../../scripts/navigation-transport-settings.js";
+import {deleteCustomTransportationPreset,findTransportationPreset,TRANSPORT_CATALOG_SETTING} from "../../scripts/navigation-transport-catalog.js";
+
+const result=document.querySelector("#result");
+const check=(condition,message)=>{if(!condition)throw Error(message);};
+const equal=(a,b,message)=>check(JSON.stringify(a)===JSON.stringify(b),
+  message+": "+JSON.stringify(a)+" !== "+JSON.stringify(b));
+const pc={id:"pc1",name:"PC",type:"character",system:{}};
+const ship={id:"ship1",name:"Warship",type:"vehicle",system:{passengers:{max:60},details:{type:"water"}}};
+const group={id:"group1",name:"Party",type:"group",system:{members:[{actor:pc},{actor:ship}],primaryVehicle:ship}};
+const roster=[{unitIndex:1,named:[{actorId:"pc1"}],hired:30}];
+let catalog;
+let saved={version:1,groups:{group1:{members:{ship1:{role:"unassigned",quantity:2,capacity:60,
+  surface:"water",profileId:"warship",crewRoster:roster}}}}};
+const writes=[],errors=[];
+globalThis.game={user:{isGM:true},system:{id:"dnd5e"},actors:{contents:[group],get:id=>id===group.id?group:null},
+  settings:{get(_m,key){return key===TRANSPORT_CATALOG_SETTING?catalog:key==="guidedGroupTransportation"?saved:key==="guidedTravelRulesProfile"?"dnd5e2024":undefined;},
+    async set(_m,key,value){writes.push(key);if(key===TRANSPORT_CATALOG_SETTING)catalog=value;else saved=value;return value;}}};
+globalThis.ui={notifications:{info(){},error(message){errors.push(message);}}};
+let exercise=null;
+globalThis.foundry={applications:{api:{ApplicationV2:class {},DialogV2:{input:async options=>{
+  // Emulate Foundry's documented render callback at the serialization boundary.
+  // Browser-native value/defaultValue, selected/disabled and FormData semantics.
+  const form=document.createElement("form");
+  form.innerHTML=options.content.outerHTML;
+  document.body.append(form);
+  try{
+    options.render?.(new Event("render"),{element:form});
+    return await exercise(form,options);
+  }finally{form.remove();}
+}}}}};
+const name=(root,id)=>root.querySelector('[name="'+id+'"]');
+const change=(control,value)=>{
+  control.value=String(value);
+  control.dispatchEvent(new Event("input",{bubbles:true}));
+  control.dispatchEvent(new Event("change",{bubbles:true}));
+};
+const app=new AtlasGroupTransportationSettings(group.id);
+app.render=async()=>{};
+const open=async()=>{
+  const root=await app._renderHTML();document.body.append(root);return root;
+};
+const click=async(root,label)=>{
+  const button=root.querySelector('[aria-label="'+label+'"]');
+  check(button,"Missing action "+label);
+  button.click();
+  for(let i=0;i<100&&button.disabled;i++)await new Promise(resolve=>setTimeout(resolve,5));
+  check(!button.disabled,"Action did not complete: "+label);
+  check(!errors.length,errors.join("; "));
+};
+try{
+  const original=JSON.stringify(group);
+  let root=await open();
+  exercise=(form)=>{
+    const mode=name(form,"policyMode"),full=name(form,"policyFull"),wage=name(form,"policyWage_gp");
+    equal(mode.value,"inherit","Inherited source");
+    equal(full.value,"60","Inherited full crew");
+    check(full.disabled&&wage.disabled,"Inherited fields must be read-only");
+    change(mode,"custom");
+    check(!full.disabled&&!wage.disabled,"Customize enables thresholds and wages");
+    change(name(form,"policyMinimum"),10);change(name(form,"policyOptimal"),20);
+    change(name(form,"policyExcellent"),30);change(full,40);change(wage,3);
+    change(name(form,"policyBasis"),"trip");name(form,"policyPaid").checked=true;
+    change(mode,"inherit");
+    check(full.disabled&&wage.disabled,"Switching back disables inherited fields");
+    equal(full.value,"60","Switching back shows World full crew immediately");
+    equal(name(form,"policyOptimal").value,"30","Switching back shows World optimal crew immediately");
+    equal(wage.value,"2","Switching back shows World wage immediately");
+    change(mode,"custom");
+    equal(full.value,"40","Draft survives source switch");
+    equal(wage.value,"3","Custom wage draft survives source switch");
+    return Object.fromEntries(new FormData(form));
+  };
+  await click(root,"Edit crew policy for Warship");
+  equal(writes.length,0,"Apply is draft only");
+  check(root.textContent.includes("31 / 40"),"Draft staffing reflects policy");
+  await click(root,"Save Party Transportation Assignments");
+  equal(writes.length,1,"Explicit Party Save");
+  equal(saved.groups.group1.members.ship1.crewPolicyOverride,
+    {crewCount:40,crewThresholds:{minimum:10,optimal:20,excellent:30},crewWageCpPerDay:300,
+      crewWageBasis:"trip",includeCrewWages:true},"Saved custom policy");
+  equal(saved.groups.group1.members.ship1.crewRoster,roster,"Roster preserved");
+  root.remove();root=await open();
+  exercise=form=>{
+    equal(name(form,"policyMode").value,"custom","Reopened source");
+    equal(name(form,"policyFull").value,"40","Reopened full crew");
+    equal(name(form,"policyWage_gp").value,"3","Reopened wage");
+    change(name(form,"policyMode"),"inherit");
+    equal(name(form,"policyFull").value,"60","Persisted override reset shows inherited full crew");
+    equal(name(form,"policyWage_gp").value,"2","Persisted override reset shows inherited wage");
+    return Object.fromEntries(new FormData(form));
+  };
+  await click(root,"Edit crew policy for Warship");
+  equal(writes.length,1,"Reset is draft only");
+  await click(root,"Save Party Transportation Assignments");
+  equal(saved.groups.group1.members.ship1.crewPolicyOverride,null,"Reset saved");
+  equal(saved.groups.group1.members.ship1.crewRoster,roster,"Reset preserves roster");
+  equal(JSON.stringify(group),original,"Native Group unchanged");
+  root.remove();
+  const cart=findTransportationPreset("cart",game.settings,"dnd5e");
+  exercise=form=>{
+    for(const [id,value] of [["crewCount","0"],["hireQuantity","1"]]){
+      const numeric=name(form,id),range=form.querySelector('[data-atlas-range-for="'+id+'"]');
+      equal(numeric.value,value,id+" numeric initial value");equal(range.value,value,id+" slider initial value");
+      if(id==="hireQuantity")name(form,"hireUnlimited").click();
+      change(range,5);equal(numeric.value,"5",id+" slider to number");
+      change(numeric,2);equal(range.value,"2",id+" number to slider");
+    }
+    return null;
+  };
+  await openTransportationMethodEditor({method:{...cart,hireEnabled:true,hireUnlimited:true,hireQuantity:1},
+    scope:"checkpoint",inheritedMethod:cart,onSave:()=>{throw Error("Cancelled offer saved");}});
+  equal(writes.length,2,"Cancelled offer does not write");
+  const worldEditor=new AtlasTransportationSettings();
+  worldEditor.render=async()=>{};
+  globalThis.foundry.utils={randomID:()=>"b4fixture123"};
+  exercise=form=>{
+    change(name(form,"name"),"B4 Disposable QA Transport");
+    change(name(form,"kind"),"vehicle");
+    change(name(form,"capacity"),1);
+    return Object.fromEntries(new FormData(form));
+  };
+  await worldEditor._edit(null,"land");
+  equal(writes.length,3,"New preset writes the World catalog once");
+  equal(catalog.customs.map(({name,kind,surface})=>({name,kind,surface})),
+    [{name:"B4 Disposable QA Transport",kind:"vehicle",surface:"land"}],
+    "New preset saves under the surface of its catalog section");
+  const {createCheckpointTransportationEditor}=await import("../../scripts/checkpoint-transportation-editor.js");
+  const temporary=catalog.customs[0];
+  const offer=methodId=>({methodId,mode:"land",overrides:{}});
+  const storedOffers=[offer("cart"),offer(temporary.id)];
+  const openOffers=offers=>createCheckpointTransportationEditor({offers});
+  check(openOffers(storedOffers).element.textContent.includes(temporary.name),
+    "Saved custom preset resolves in the marker editor");
+  catalog=deleteCustomTransportationPreset(catalog,temporary.id);
+  const orphan=openOffers(storedOffers);
+  check(orphan.element.textContent.includes("Missing World preset"),"Orphan warning appears");
+  check(orphan.element.querySelector('[aria-label^="Edit '+temporary.id+' "]').disabled,
+    "Orphan editing is disabled");
+  await click(orphan.element,"Remove "+temporary.id+" from Map Marker");
+  await click(orphan.element,"Add Land Travel method");
+  const picker=orphan.element.querySelector("select");
+  const replacement=[...picker.options].find(option=>option.value&&option.value!=="cart").value;
+  picker.value=replacement;
+  [...orphan.element.querySelectorAll("button")].find(button=>
+    button.textContent==="Add selected method").click();
+  equal(storedOffers,[offer("cart"),offer(temporary.id)],"Replacement changes only the draft");
+  equal(writes.length,3,"Marker draft does not write World settings");
+  const reopened=openOffers(structuredClone(orphan.getOffers()));
+  equal(reopened.getOffers(),[offer("cart"),offer(replacement)],"Reopen retains Cart and replacement");
+  check(!reopened.element.textContent.includes("Missing World preset"),"Warning clears after replacement");
+  result.textContent="PASS: Atlas transport dialog browser regression";
+}catch(error){result.textContent="FAIL: "+error.stack;console.error(error);}
+</script></body></html>

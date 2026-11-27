@@ -535,8 +535,8 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.ok(moveFooter?.className.includes("atlas-checkpoint-footer-icon"),
       "Move Map Marker is a compact action located in the footer");
     assert.deepEqual(leftActions.children.map(node=>
-      node.className==="atlas-checkpoint-footer-visibility"?"Visibility":node.title),
-      ["Locate Map Marker","Visibility","Move Map Marker"],
+      node.className==="atlas-checkpoint-footer-visibility"?"Visibility":node.title||node.textContent),
+      ["Locate Map Marker","Visibility","Move Map Marker", "Save as preset…","Delete Map Marker"],
       "Locate, visibility and Move keep actual DOM/keyboard order");
     const locate=leftActions.children[0];
     assert.equal(locate.disabled,false);
@@ -579,14 +579,11 @@ test("v0.2.21.1 checkpoint editor caps icon buttons and updates live slider valu
     assert.ok(save?.className.includes("atlas-ui-icon-button"),
       "Save uses the shared icon action without changing its handler");
     assert.equal(save.type,"button","Save cannot accidentally submit the form");
-    assert.equal(rightActions.children[0].textContent,"Save as preset…",
-      "saving a World preset remains distinct from saving the Map Marker");
-    assert.equal(rightActions.children[1],save,
-      "Save is immediately before the destructive Delete action");
-    assert.equal(rightActions.children[2].title,"Delete Map Marker",
-      "Delete is the final control in DOM and keyboard order");
-    assert.equal(rightActions.children[2].className.includes("atlas-checkpoint-footer-delete"),true);
-    assert.equal(rightActions.children.length,3);
+    assert.equal(rightActions.children[0].textContent,"Cancel");
+    assert.equal(rightActions.children[1],save,"Save follows Cancel and is the final primary action");
+    assert.equal(save.children.at(-1).textContent,"Save Map Marker");
+    assert.equal(leftActions.children.at(-1).title,"Delete Map Marker");
+    assert.equal(rightActions.children.length,2);
     assert.equal(footer.children.indexOf(leftActions),0,
       "editing controls always precede Save and Delete");
     assert.equal(name.autofocus,true);

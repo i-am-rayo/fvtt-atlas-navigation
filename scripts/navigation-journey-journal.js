@@ -4,7 +4,7 @@ import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
 import {describeConfirmedTravelers} from "./navigation-journey-manifest.js";
 import {validateJourneyParticipation} from "./navigation-journey-participation.js";
 import {validateJourneyLivestock} from "./navigation-journey-livestock.js";
-import {mixedTransportFareBreakdown,dndCurrencyBreakdown} from "./navigation-currency.js";
+import {mixedTransportFareBreakdown,dndCurrencyBreakdown,walkingCargoFareBreakdown,describeTransportationFareRows} from "./navigation-currency.js";
 import {validateAggregateLandConvoy} from "./navigation-theater-convoy.js";
 const validateApprovedConvoy=value=>value?.schemaVersion===3?
   validateAggregateLandConvoy(value):value?.schemaVersion===2?
@@ -16,6 +16,8 @@ import { confirmedJourneyDirections } from "./navigation-journey-timeline.js";
 import {isRestUnderway,validatePassengerRestMetadata,confirmedJourneyMovingHours}
   from "./navigation-passenger-rest.js";
 import {validateTransportJourneyInfo,confirmedTransportJourneyLines,isMixedLandTransport} from "./navigation-transport-journal.js";
+import {validateHiredServiceApproval} from "./navigation-transport-service.js";
+import {validateConfirmedOwnedVehicleApproval} from "./navigation-group-transport.js";
 import {validateJourneyTargets,validateJourneyAnchor,confirmJourneyTarget}
   from "./navigation-route-targets.js";
 import {validatePendingNativeMove}
@@ -49,13 +51,34 @@ const validJourneyMethod=value=>Boolean(value&&typeof value==="object"&&
   typeof value.name==="string"&&value.name.trim()&&value.name.length<=240&&
   !/[\u0000-\u001f]/.test(value.name)&&
   ["owned","hire"].includes(value.arrangement)&&
-  ["normal","overtime","continuous"].includes(value.operation));
+  ["normal","overtime","continuous"].includes(value.operation)&&
+  (value.serviceContinuation===undefined||value.serviceContinuation===true&&value.serviceApproval!==undefined)&&
+  (value.ownedContinuation===undefined||value.ownedContinuation===true&&value.ownedApproval!==undefined)&&
+  (value.ownedApproval===undefined||(()=>{
+    try{
+      const approved=validateConfirmedOwnedVehicleApproval(value.ownedApproval);
+      return value.arrangement==="owned"&&value.serviceApproval===undefined&&
+        approved.methodId===value.id&&approved.surface==="land"&&approved.operation===value.operation;
+    }catch{return false;}
+  })())&&
+  (value.serviceApproval===undefined||(()=>{
+    try{return value.arrangement==="hire"&&validateHiredServiceApproval(value.serviceApproval).operation===value.operation;}
+    catch{return false;}
+  })()));
 
 export function journeyLegFromItinerary(itinerary){
   if(itinerary?.schemaVersion!==1||!validPoint(itinerary.endpoints?.departure)||
       !validPoint(itinerary.endpoints?.destination)||
       !Array.isArray(itinerary.directions)||itinerary.directions.length>4096)
     throw Error("A versioned Atlas itinerary is required for a Journey Journal.");
+  const landOwned=itinerary.travel?.ownedApproval;
+  if(landOwned!==undefined&&(itinerary.transport||!validJourneyMethod({
+      ...itinerary.travel,id:itinerary.travel.methodId,
+      name:itinerary.travel.methodName??itinerary.travel.methodId})))
+    throw Error("Invalid approved owned land service.");
+  const convoy=itinerary.convoy?validateApprovedConvoy(itinerary.convoy):null;
+  if(convoy?.methods?.some(m=>m.ownedApproval)&&!itinerary.participation)
+    throw Error("An approved owned convoy requires its traveler manifest.");
   return {
     sceneName:String(itinerary.scene?.name??"Scene"),
     departure:point(itinerary.endpoints.departure),
@@ -72,9 +95,10 @@ export function journeyLegFromItinerary(itinerary){
     })),
     completedMovingHours:0,completedPercent:0,events:[],
     worldTravelSeconds:0,worldRestSeconds:0,
-    ...(itinerary.participation?{participation:validateJourneyParticipation(itinerary.participation)}:{}),
+    ...(itinerary.participation?{participation:validateJourneyParticipation(itinerary.participation,{
+      ownedApproval:itinerary.transport?.ownedApproval??landOwned,convoy})}:{}),
     ...(itinerary.livestock?{livestock:validateJourneyLivestock(itinerary.livestock)}:{}),
-    ...(itinerary.convoy?{convoy:validateApprovedConvoy(itinerary.convoy)}:{}),
+    ...(convoy?{convoy}:{}),
     ...(itinerary.transport?{transport:validateTransportJourneyInfo(itinerary.transport)}
       :itinerary.travel?.methodId&&
         (itinerary.travel.methodId!=="walking"||itinerary.convoy)?
@@ -82,7 +106,9 @@ export function journeyLegFromItinerary(itinerary){
           id:String(itinerary.travel.methodId),
           name:String(itinerary.travel.methodName??itinerary.travel.methodId),
           arrangement:String(itinerary.travel.arrangement??"owned"),
-          operation:String(itinerary.travel.operation??"normal")
+          operation:String(itinerary.travel.operation??"normal"),
+          ...(itinerary.travel.serviceApproval!==undefined?{serviceApproval:validateHiredServiceApproval(itinerary.travel.serviceApproval)}:{}),
+          ...(landOwned!==undefined?{ownedApproval:validateConfirmedOwnedVehicleApproval(landOwned)}:{})
         }}:{})
   };
 }
@@ -169,12 +195,58 @@ export function validateJourneyRecord(value){
       !Number.isSafeInteger(value.day?.restEvents)||value.day.restEvents<0||
       value.day.restEvents>48)
     throw Error("This Atlas Journey Journal has invalid recovery metadata.");
-  for(const leg of value.legs)
+  for(const [index,leg] of value.legs.entries()){
+    const service=leg.transport?.serviceApproval??leg.travelMethod?.serviceApproval;
+    if(service&&(leg.transport?.continuation||leg.travelMethod?.serviceContinuation)){
+      const prior=value.legs[index-1];
+      const priorService=prior?.transport?.serviceApproval??prior?.travelMethod?.serviceApproval;
+      if(!priorService||prior.completedPercent>=99.999||
+          (prior.transport?.methodId??prior.travelMethod?.id)!==(leg.transport?.methodId??leg.travelMethod?.id)||
+          JSON.stringify(validateHiredServiceApproval(priorService))!==JSON.stringify(validateHiredServiceApproval(service)))
+        throw Error("Invalid approved service continuation.");
+    }
+    const owned=leg.transport?.ownedApproval??leg.travelMethod?.ownedApproval;
+    const priorOwned=value.legs[index-1];
+    const priorApproval=priorOwned?.transport?.ownedApproval??priorOwned?.travelMethod?.ownedApproval;
+    const continuesOwned=priorApproval&&priorOwned.completedPercent<99.999;
+    const ownedContinuation=leg.transport?.continuation||leg.travelMethod?.ownedContinuation;
+    if(continuesOwned&&(!owned||!ownedContinuation))
+      throw Error("Invalid replacement of unfinished owned service.");
+    if(owned){
+      const approval=validateConfirmedOwnedVehicleApproval(owned);
+      if(leg.participation!==undefined)
+        validateJourneyParticipation(leg.participation,{ownedApproval:approval});
+      if(ownedContinuation){
+        if(!continuesOwned||
+            Boolean(priorOwned.transport)!==Boolean(leg.transport)||
+            priorOwned.transport?.arrivalCheckpointId!==leg.transport?.arrivalCheckpointId||
+            priorOwned.speedPerHour!==leg.speedPerHour||
+            priorOwned.destination.x!==leg.destination.x||
+            priorOwned.destination.y!==leg.destination.y||
+            JSON.stringify(priorApproval)!==JSON.stringify(approval)||
+            JSON.stringify(priorOwned.participation)!==JSON.stringify(leg.participation))
+          throw Error("Invalid approved owned service continuation.");
+      }
+    }
+    const priorMixed=value.legs[index-1];
+    if(priorMixed?.convoy?.methods?.some(m=>m.ownedApproval)&&priorMixed.completedPercent<99.999&&
+        (JSON.stringify(priorMixed.convoy)!==JSON.stringify(leg.convoy)||
+          JSON.stringify(priorMixed.participation)!==JSON.stringify(leg.participation)||
+          priorMixed.destination.x!==leg.destination.x||priorMixed.destination.y!==leg.destination.y||
+          priorMixed.terrainAware!==leg.terrainAware||
+          Boolean(priorMixed.transport)!==Boolean(leg.transport)||
+          priorMixed.transport?.arrivalCheckpointId!==leg.transport?.arrivalCheckpointId))
+      throw Error("Invalid approved owned convoy continuation.");
     if(leg.convoy!==undefined){
       const convoy=validateApprovedConvoy(leg.convoy);
+      if(convoy.methods?.some(m=>m.ownedApproval)){
+        if(!leg.participation)throw Error("The approved owned convoy traveler manifest is missing.");
+        validateJourneyParticipation(leg.participation,{convoy});
+      }
       if(Math.abs(convoy.speedPerHour-leg.speedPerHour)>1e-7)
         throw Error("Approved convoy speed differs from the saved journey leg.");
     }
+  }
   if(value.passengerRest!==undefined)validatePassengerRestMetadata(value.passengerRest);
   if(value.pendingNativeMove!==undefined&&value.pendingNativeMove!==null)
     validatePendingNativeMove(value.pendingNativeMove);
@@ -240,6 +312,11 @@ export function resumeJourneyRecord(record,{itinerary,atlasRevision,
   if(isUnfinishedJourneyLeg(next)&&old?.convoy){
     if(Math.abs(resumed.speedPerHour-old.speedPerHour)>1e-7)
       throw Error("The saved convoy speed must be retained before recovery.");
+    if(old.convoy.methods?.some(m=>m.ownedApproval)&&
+        (JSON.stringify(resumed.convoy)!==JSON.stringify(old.convoy)||
+          old.destination.x!==resumed.destination.x||old.destination.y!==resumed.destination.y||
+          old.terrainAware!==resumed.terrainAware))
+      throw Error("Recovery cannot change the approved owned convoy.");
     resumed.convoy=validateApprovedConvoy(old.convoy);
     if(isMixedLandTransport(old.transport)){
       if(!isMixedLandTransport(resumed.transport)||
@@ -255,6 +332,29 @@ export function resumeJourneyRecord(record,{itinerary,atlasRevision,
     }
   }
   if(isUnfinishedJourneyLeg(next)){
+    const approvedService=old.transport?.serviceApproval??old.travelMethod?.serviceApproval;
+    const resumedService=resumed.transport?.serviceApproval??resumed.travelMethod?.serviceApproval;
+    if(approvedService!==undefined||resumedService!==undefined){
+      if(JSON.stringify(approvedService)!==JSON.stringify(resumedService)||
+          old.transport?.methodId!==resumed.transport?.methodId||
+          old.transport?.arrivalCheckpointId!==resumed.transport?.arrivalCheckpointId||
+          old.travelMethod?.id!==resumed.travelMethod?.id)
+        throw Error("Recovery cannot change the approved hired service.");
+      if(resumed.travelMethod)resumed.travelMethod.serviceContinuation=true;
+    }
+    const approvedOwned=old.transport?.ownedApproval??old.travelMethod?.ownedApproval;
+    const resumedOwned=resumed.transport?.ownedApproval??resumed.travelMethod?.ownedApproval;
+    if(approvedOwned!==undefined||resumedOwned!==undefined){
+      if(JSON.stringify(approvedOwned)!==JSON.stringify(resumedOwned)||
+          Boolean(old.transport)!==Boolean(resumed.transport)||
+          old.transport?.methodId!==resumed.transport?.methodId||
+          old.travelMethod?.id!==resumed.travelMethod?.id||
+          old.transport?.arrivalCheckpointId!==resumed.transport?.arrivalCheckpointId||
+          old.speedPerHour!==resumed.speedPerHour||resumed.transport&&!resumed.transport.continuation||
+          old.destination.x!==resumed.destination.x||old.destination.y!==resumed.destination.y)
+        throw Error("Recovery cannot change the approved owned service.");
+      if(resumed.travelMethod)resumed.travelMethod.ownedContinuation=true;
+    }
     // Interruption never authorizes changing a previously approved roster.
     if(old.participation!==undefined){
       if(resumed.participation!==undefined&&
@@ -330,130 +430,231 @@ export function formatJourneyJournalHTML(raw,{settings=globalThis.game?.settings
     leg.events.reduce((hours,event)=>hours+(isRestUnderway(event.action)?0:(Number(event.hours)||0)),0),0);
   const clockMoving=record.legs.reduce((sum,leg)=>sum+leg.worldTravelSeconds,0);
   const clockBreaks=record.legs.reduce((sum,leg)=>sum+leg.worldRestSeconds,0);
-  const legs=record.legs.map((leg,index)=>{
-    // Render from retained native Scene units; never rewrite historical Journal flags.
-    const displayDistance=amount=>{
-      const display=atlasDisplayDistance(amount,leg.units,settings,systemId);
-      return Number(display.value).toFixed(2)+" "+display.unit;
-    };
-    const timeline=confirmedJourneyDirections(leg.directions,leg.events,{
-      travelHours:leg.movingHours,speed:leg.speedPerHour,
-      terrainAware:leg.terrainAware,confirmedHours:leg.completedMovingHours});
-    const transportLines=confirmedTransportJourneyLines(leg.transport,{
-      movingHours:leg.completedMovingHours,
-      complete:leg.completedPercent>=99.999}).map(line=>
-      `<li class="atlas-journey-transport-event">${escapeHTML(line)}</li>`).join("");
-    const convoySpeed=n=>{
-      const shown=atlasDisplaySpeed(n,leg.units,settings,systemId);
-      const unit=shown.unit==="mi/hour"?"mph":
-        shown.unit==="km/hour"?"kph":shown.unit;
-      return Number(shown.value).toFixed(2)+" "+unit;
-    };
-    const fare=leg.convoy&&[2,3].includes(leg.convoy.schemaVersion)?
-      mixedTransportFareBreakdown(leg.convoy.methods,
+  let shownService=null,shownConvoy=null,shownOwned=null,shownLivestock=null;
+  const legGroups=[];
+  for(const [index,leg] of record.legs.entries()){
+    const prior=record.legs[index-1];
+    const continues=prior&&prior.completedPercent<99.999&&
+      (leg.transport?.continuation&&leg.transport.methodId===prior.transport?.methodId&&
+        leg.transport.arrivalCheckpointId===prior.transport.arrivalCheckpointId||
+        (leg.travelMethod?.ownedContinuation||leg.travelMethod?.serviceContinuation)&&
+        leg.travelMethod.id===prior.travelMethod?.id);
+    if(!continues)legGroups.push([]);
+    legGroups.at(-1).push({leg,prior});
+  }
+  const legs=legGroups.map((group,index)=>{
+    const label="Leg "+(index+1);
+    const segments=group.map(({leg,prior},segmentIndex)=>{
+      const sectionLabel=group.length===1?label:"Segment "+(segmentIndex+1);
+      const heading=group.length===1?"h3":"h4";
+      // Render from retained native Scene units; never rewrite historical Journal flags.
+      const displayDistance=amount=>{
+        const display=atlasDisplayDistance(amount,leg.units,settings,systemId);
+        return Number(display.value).toFixed(2)+" "+display.unit;
+      };
+      const timeline=confirmedJourneyDirections(leg.directions,leg.events,{
+        travelHours:leg.movingHours,speed:leg.speedPerHour,
+        terrainAware:leg.terrainAware,confirmedHours:leg.completedMovingHours});
+      const transportLines=confirmedTransportJourneyLines(leg.transport,{
+        movingHours:leg.completedMovingHours,
+        complete:leg.completedPercent>=99.999}).map(line=>
+        `<li class="atlas-journey-transport-event">${escapeHTML(line)}</li>`).join("");
+      const convoySpeed=n=>{
+        const shown=atlasDisplaySpeed(n,leg.units,settings,systemId);
+        const unit=shown.unit==="mi/hour"?"mph":
+          shown.unit==="km/hour"?"kph":shown.unit;
+        return Number(shown.value).toFixed(2)+" "+unit;
+      };
+      const fare=leg.convoy&&[2,3].includes(leg.convoy.schemaVersion)?
+        mixedTransportFareBreakdown(leg.convoy.methods,
+          systemId==="dnd5e"?globalThis.CONFIG?.DND5E?.currencies:undefined):null;
+      const tiered=leg.convoy?.sharedDailyHours!==undefined;
+      const cargo=leg.convoy?.schemaVersion===1;
+      const cargoFare=cargo?walkingCargoFareBreakdown(leg.convoy.hires,
         systemId==="dnd5e"?globalThis.CONFIG?.DND5E?.currencies:undefined):null;
-    const convoyLines=leg.convoy&&leg.completedMovingHours>0?(
-      [2,3].includes(leg.convoy.schemaVersion)?[
-        "The Group traveled together using mixed transportation at "+
-          convoySpeed(leg.convoy.speedPerHour)+".",
-        ...leg.convoy.methods.map(m=>{
-          const assignment=describeConfirmedTravelers(leg.convoy)
-            .find(item=>item.key===m.key);
-          const riders=m.passengers+" "+(m.passengers===1?"traveler":"travelers");
-          const label=m.role==="walking"?"Walking: "+
-            (assignment?.travelers??riders):m.methodName+": "+
-            (m.role==="cargo"?"Cargo only":(assignment?.travelers??riders+" riding"))+
-            " · "+m.units+" "+(m.units===1?"unit":"units");
-          const cost=fare.rows.find(row=>row.key===m.key);
-          return label+(cost?" · "+cost.label:"");
-        }),
-        (isMixedLandTransport(leg.transport)&&leg.transport.continuation?
-          "Previously approved transportation cost: "+fare.total.label+
-            " (not an additional quote; no currency deducted).":
-          "Estimated transportation cost: "+fare.total.label+
-            " (planned leg quote; no currency deducted)."),
-        ...(leg.convoy.gmWalkingPaceOverride?[
-          "GM-approved walking pace exception: recommended "+
-            convoySpeed(leg.convoy.suggestedSpeedPerHour)+
-            ", approved "+convoySpeed(leg.convoy.speedPerHour)+
-            " for this Journey; Actor speeds were not changed."]:[])
-      ]:[
-        "The party walked together with hired cargo transport at "+
-          convoySpeed(leg.convoy.speedPerHour)+" (approved convoy pace).",
-        ...(leg.convoy.gmWalkingPaceOverride?[
-          "GM-approved walking pace exception: recommended "+
-            convoySpeed(leg.convoy.suggestedSpeedPerHour)+
-            ", approved "+convoySpeed(leg.convoy.speedPerHour)+
-            " for this Journey; Actor movement speeds were not changed."]:[]),
-        ...leg.convoy.hires.map(h=>h.units+" cargo-only "+h.methodName+
-          " (estimated fare "+h.estimatedCostCp+" CP; not charged).")
-      ]).map(line=>'<li class="atlas-journey-transport-event">'+escapeHTML(line)+"</li>").join(""):"";
-    const landMethod=leg.travelMethod&&leg.completedMovingHours>0&&
-      !leg.convoy?
-      `<li class="atlas-journey-transport-event">The party traveled using ${escapeHTML(leg.travelMethod.name)} (`+
-        `${escapeHTML(leg.travelMethod.arrangement==="hire"?"hired":"party-owned")}).`+
-        ` No automatic purchase, booking or currency deduction occurred.</li>`:"";
-    const participants=leg.participation&&leg.completedMovingHours>0?
-      (p=>`<div class="atlas-journey-leg-group"><h4>Confirmed Travelers</h4>`+
-        `<p>The Group explorer token represents only the travelers listed as traveling `+
-        `for this Atlas leg; native Group membership is unchanged.</p><ul>`+
-        p.people.map(person=>`<li>${escapeHTML(person.name)} — `+
-          (person.traveling?"Traveling ("+escapeHTML(person.methodKey)+")":"Not traveling")+
-          `</li>`).join("")+`</ul></div>`)(validateJourneyParticipation(leg.participation)):"";
-    const livestock=leg.livestock&&leg.completedMovingHours>0?
-      (manifest=>`<div class="atlas-journey-leg-group"><h4>Confirmed Mount Movement</h4>`+
-        `<p>Physical mount participation is Atlas Journey metadata; the native Group `+
-        `and Actor quantities are unchanged.</p><ul>`+
-        manifest.resources.map(m=>`<li>${escapeHTML(m.name)}: `+
-          (m.aboard?m.aboard+" of "+m.quantity+
-            (manifest.carried?" carried":manifest.surface==="land"?" accompanied":" embarked"):
-            "Stayed behind ("+m.quantity+")")+`</li>`).join("")+`</ul>`+
-        (manifest.surface==="land"&&!manifest.carried?"":
-          `<p>Animal accommodation: ${manifest.capacityPerUnit===null?
-            "unlimited by default":manifest.capacityPerUnit+" spaces/vehicle"} `+
-          `· ${manifest.units} vehicle(s). Estimated animal fare: `+
-          `${escapeHTML(systemId==="dnd5e"?
-            dndCurrencyBreakdown(manifest.estimatedFareCp,
-              globalThis.CONFIG?.DND5E?.currencies).label:
-            manifest.estimatedFareCp+" CP")} `+
-          (leg.transport?.continuation?"(previously approved, not quoted again).":
-            "(included in total; no deduction).")+`</p>`)+
-        `</div>`)(validateJourneyLivestock(leg.livestock)):"";
-    const rows=timeline.map(step=>step.kind==="journey-event"?
-      `<li class="atlas-journey-rest-event"><strong>${escapeHTML(step.label)}</strong> after `+
-      `${escapeHTML(formatNavigationDuration(step.atHours,24))} on this leg`+
-      (step.todayHours!==null?
-        ` (${escapeHTML(formatNavigationDuration(step.todayHours,24))} traveled today)`:
-        "")+
-      (step.hours?(isRestUnderway(step.action)?
-        ` — ${escapeHTML(formatNavigationDuration(step.hours,24))} resting while underway`:
-        ` (+${escapeHTML(formatNavigationDuration(step.hours,24))})`):"")+
-      (step.startedTimeLabel?` — World time: ${escapeHTML(step.startedTimeLabel)}`:"")+
-      (step.endedTimeLabel&&step.endedTimeLabel!==step.startedTimeLabel?
-        ` to ${escapeHTML(step.endedTimeLabel)}`:
-        (step.hours&&!isRestUnderway(step.action)&&step.endedTimeLabel===step.startedTimeLabel?
-          " (World clock unchanged)":""))+"</li>":
-      `<li class="atlas-journey-direction">${escapeHTML(step.instruction)} — ${escapeHTML(displayDistance(Number(step.distance)))}</li>`).join("");
-    // Use the same tolerance as the confirmed-arrival predicate.
-    const percent=leg.completedPercent>=99.999?100:Math.floor(leg.completedPercent);
-    return `<section class="atlas-journey-leg" aria-label="Leg ${index+1}">`+
-      `<div class="atlas-journey-leg-header"><h3>Leg ${index+1}: ${escapeHTML(leg.sceneName)}</h3>`+
-      `<span class="atlas-journey-leg-progress-label">${percent}% confirmed</span></div>`+
-      `<div class="atlas-journey-progress-track" role="progressbar" aria-label="Leg ${index+1} confirmed progress" `+
-      `aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}">`+
-      `<span class="atlas-journey-progress-fill" style="width:${percent}%"></span></div>`+
-      `<p>Distance: ${escapeHTML(displayDistance(Number(leg.distance)))}; `+
-      `Moving time: ${escapeHTML(formatNavigationDuration(leg.movingHours,24))}; `+
-      `Confirmed progress: ${percent}% `+
-      `(${escapeHTML(formatNavigationDuration(leg.completedMovingHours,24))} moving).</p>`+
-      participants+livestock+
-      (transportLines||landMethod||convoyLines?
-        `<div class="atlas-journey-leg-group"><h4>Confirmed Transportation and Transfers</h4>`+
-        `<ul>${transportLines}${landMethod}${convoyLines}</ul></div>`:"")+
-      `<div class="atlas-journey-leg-group"><h4>Confirmed Directions and Stops</h4>`+
-      `<p class="atlas-journey-caption">The full planned route remains in this Journey's saved metadata. `+
-      `Only confirmed travel and approved stops appear below.</p>`+
-      `<ol>${rows}</ol></div>`+"</section>";
+      const tracksQuote=tiered||cargo;
+      const convoyKey=tracksQuote?JSON.stringify(leg.convoy):null;
+      const continuingConvoy=tracksQuote&&prior?.completedPercent<99.999&&
+        JSON.stringify(prior.convoy)===convoyKey;
+      if(!continuingConvoy)shownConvoy=null;
+      const repeatMixed=continuingConvoy&&shownConvoy===convoyKey;
+      const convoyLines=leg.convoy&&leg.completedMovingHours>0?(
+        [2,3].includes(leg.convoy.schemaVersion)?[
+          "The Group traveled together using mixed transportation at "+
+            convoySpeed(leg.convoy.speedPerHour)+".",
+          ...leg.convoy.methods.map(m=>{
+            const assignment=describeConfirmedTravelers(leg.convoy)
+              .find(item=>item.key===m.key);
+            const riders=m.passengers+" "+(m.passengers===1?"traveler":"travelers");
+            const label=m.role==="walking"?"Walking: "+
+              (assignment?.travelers??riders):m.methodName+": "+
+              (m.role==="cargo"?"Cargo only":(assignment?.travelers??riders+" riding"))+
+              " · "+m.units+" "+(m.units===1?"unit":"units");
+            const cost=fare.rows.find(row=>row.key===m.key);
+            const service=m.serviceApproval;
+            const tier=service?" · "+service.serviceLevel+" service · "+service.advertisedCrew+
+              " advertised crew per unit · supports "+service.advertisedDailyHours+
+              "h/day; shared "+service.dailyHours+"h/day":"";
+            const owned=m.ownedApproval;
+            const staffing=owned?" · "+owned.passengerSeats+"/"+owned.passengerCapacity+
+              " passenger seats · shared "+owned.dailyHours+"h/day · "+
+              owned.units.map(u=>u.name+" — Unit "+u.unitIndex+": "+
+                (u.configured?u.staffedCrew+"/"+u.requiredCrew+" crew":"Roster unconfigured")+
+                " · "+u.paidCrew+" paid"+(u.namedCrew.length?" · "+u.namedCrew.map(c=>c.name).join(", "):"")).join("; ")+
+              (owned.belowMinimum?" · Below-minimum staffing acknowledged":""):"";
+            return label+tier+staffing+(cost&&!repeatMixed?" · "+cost.label:"");
+          }),
+          (repeatMixed?"Continuing previously approved mixed service; no new fare.":
+            !tiered&&isMixedLandTransport(leg.transport)&&leg.transport.continuation?
+            "Previously approved transportation cost: "+fare.total.label+
+              " (not an additional quote; no currency deducted).":
+            "Estimated transportation cost: "+fare.total.label+
+              " (planned leg quote; no currency deducted)."),
+          ...(leg.convoy.gmWalkingPaceOverride?[
+            "GM-approved walking pace exception: recommended "+
+              convoySpeed(leg.convoy.suggestedSpeedPerHour)+
+              ", approved "+convoySpeed(leg.convoy.speedPerHour)+
+              " for this Journey; Actor speeds were not changed."]:[])
+        ]:[
+          "The party walked together with hired cargo transport at "+
+            convoySpeed(leg.convoy.speedPerHour)+" (approved convoy pace).",
+          ...(leg.convoy.gmWalkingPaceOverride?[
+            "GM-approved walking pace exception: recommended "+
+              convoySpeed(leg.convoy.suggestedSpeedPerHour)+
+              ", approved "+convoySpeed(leg.convoy.speedPerHour)+
+              " for this Journey; Actor movement speeds were not changed."]:[]),
+          ...leg.convoy.hires.map(h=>h.units+" cargo-only "+h.methodName+
+            (repeatMixed?"": " (estimated fare "+cargoFare.rows.find(row=>row.key===h.methodId).label+
+              "; not charged).")),
+          repeatMixed?"Continuing previously approved cargo service; no new fare.":
+            "Estimated transportation cost: "+cargoFare.total.label+" (planned leg quote; no currency deducted)."
+        ]).map(line=>'<li class="atlas-journey-transport-event">'+escapeHTML(line)+"</li>").join(""):"";
+      if(tracksQuote&&leg.completedMovingHours>0)shownConvoy=convoyKey;
+      const landMethod=leg.travelMethod&&leg.completedMovingHours>0&&
+        !leg.convoy?
+        `<li class="atlas-journey-transport-event">The party traveled using ${escapeHTML(leg.travelMethod.name)} (`+
+          `${escapeHTML(leg.travelMethod.arrangement==="hire"?"hired":"party-owned")}).`+
+          ` No automatic purchase, booking or currency deduction occurred.</li>`:"";
+      const service=leg.transport?.serviceApproval??leg.travelMethod?.serviceApproval;
+      const continuingService=Boolean(leg.transport?.continuation||leg.travelMethod?.serviceContinuation);
+      if(!continuingService||!service)shownService=null;
+      let serviceLines="";
+      if(service&&leg.completedMovingHours>0){
+        const approved=validateHiredServiceApproval(service);
+        const key=JSON.stringify(approved);
+        const money=cp=>systemId==="dnd5e"?(cp<0?"-":"")+
+          dndCurrencyBreakdown(Math.abs(cp),globalThis.CONFIG?.DND5E?.currencies).label:cp+" CP";
+        const line=continuingService&&shownService===key?
+          "Continuing previously approved service; no new fare.":
+          "Approved hired service: "+approved.serviceLevel+" · "+approved.advertisedCrew+
+          " advertised crew per unit · "+approved.units+" unit(s) · "+approved.dailyHours+"h/day. "+
+          "Original estimated total: "+money(approved.totalCp)+" ("+
+          describeTransportationFareRows(approved).map(([label,value])=>label+": "+value).join("; ")+
+          "). Fare components before rounding. No currency deducted.";
+        serviceLines=`<li class="atlas-journey-transport-event">${escapeHTML(line)}</li>`;
+        shownService=key;
+      }
+      const owned=leg.transport?.ownedApproval??leg.travelMethod?.ownedApproval;
+      const continuingOwned=Boolean(leg.transport?.continuation||leg.travelMethod?.ownedContinuation);
+      if(!owned||!continuingOwned)shownOwned=null;
+      if(owned&&leg.completedMovingHours>0){
+        const approved=validateConfirmedOwnedVehicleApproval(owned);
+        const key=JSON.stringify(approved);
+        const money=cp=>systemId==="dnd5e"?
+          dndCurrencyBreakdown(cp,globalThis.CONFIG?.DND5E?.currencies).label:cp+" CP";
+        const lines=continuingOwned&&shownOwned===key?
+          ["Continuing previously approved owned service; no new fare."]:[
+            "Approved owned service: "+approved.units.length+" unit(s) · "+approved.passengerSeats+
+              "/"+approved.passengerCapacity+" passenger seats · "+approved.dailyHours+"h/day. "+
+              (approved.belowMinimum?"Below-minimum staffing acknowledged. ":""),
+            ...approved.units.map(unit=>unit.name+" — Unit "+unit.unitIndex+": "+
+              (unit.configured?unit.staffedCrew+"/"+unit.requiredCrew+" crew · "+unit.tier:
+                "Roster unconfigured · "+unit.requiredCrew+" reference crew")+" · "+
+              unit.paidCrew+" paid crew"+(unit.namedCrew.length?" · "+
+                unit.namedCrew.map(c=>c.name+(c.duty?" ("+c.duty+")":"")).join(", "):"")),
+            "Original estimated total: "+money(approved.totalCp)+" ("+
+              describeTransportationFareRows(approved,{owned:true}).map(([label,value])=>label+": "+value).join("; ")+
+              "). Fare components before rounding. No currency deducted."
+          ];
+        serviceLines+=lines.map(line=>'<li class="atlas-journey-transport-event">'+escapeHTML(line)+'</li>').join("");
+        shownOwned=key;
+      }
+      const participants=leg.participation&&leg.completedMovingHours>0?
+        (p=>`<div class="atlas-journey-leg-group"><h4>Confirmed Travelers</h4>`+
+          `<p>The Group explorer token represents only the travelers listed as traveling `+
+          `for this Atlas leg; native Group membership is unchanged.</p><ul>`+
+          p.people.map(person=>`<li>${escapeHTML(person.name)} — `+
+            (person.traveling?"Traveling ("+escapeHTML(person.methodKey)+")":"Not traveling")+
+            `</li>`).join("")+`</ul></div>`)(validateJourneyParticipation(leg.participation)):"";
+      const mountKey=leg.livestock?JSON.stringify(leg.livestock):null;
+      const continuingMounts=mountKey!==null&&prior?.completedPercent<99.999&&
+        JSON.stringify(prior.livestock)===mountKey;
+      if(!continuingMounts)shownLivestock=null;
+      const repeatedMounts=continuingMounts&&shownLivestock===mountKey;
+      // Only suppress a manifest subtotal when the retained service actually
+      // accounts for the same physical animals and amount.
+      const mountInService=service&&leg.livestock&&service.livestockCount>0&&
+        service.livestockCount===leg.livestock.resources.reduce((n,m)=>n+m.aboard,0)&&
+        service.livestockFareCp===leg.livestock.estimatedFareCp;
+      const livestock=leg.livestock&&leg.completedMovingHours>0?
+        (manifest=>`<div class="atlas-journey-leg-group"><h4>Confirmed Mount Movement</h4>`+
+          `<p>Physical mount participation is Atlas Journey metadata; the native Group `+
+          `and Actor quantities are unchanged.</p><ul>`+
+          manifest.resources.map(m=>`<li>${escapeHTML(m.name)}: `+
+            (m.aboard?m.aboard+" of "+m.quantity+
+              (manifest.carried?" carried":manifest.surface==="land"?" accompanied":" embarked"):
+              "Stayed behind ("+m.quantity+")")+`</li>`).join("")+`</ul>`+
+          (manifest.surface==="land"&&!manifest.carried?"":
+            `<p>Animal accommodation: ${manifest.capacityPerUnit===null?
+              "unlimited by default":manifest.capacityPerUnit+" spaces/vehicle"} `+
+            `· ${manifest.units} vehicle(s). `+
+            (repeatedMounts?"Previously approved animal accommodation; no new fare.":
+              mountInService?"Mount fare is included in the approved service breakdown; no deduction.":
+              "Estimated animal fare: "+escapeHTML(systemId==="dnd5e"?
+                dndCurrencyBreakdown(manifest.estimatedFareCp,
+                  globalThis.CONFIG?.DND5E?.currencies).label:
+                manifest.estimatedFareCp+" CP")+" (included in total; no deduction).")+`</p>`)+
+          `</div>`)(validateJourneyLivestock(leg.livestock)):"";
+      if(mountKey!==null&&leg.completedMovingHours>0)shownLivestock=mountKey;
+      const rows=timeline.map(step=>step.kind==="journey-event"?
+        `<li class="atlas-journey-rest-event"><strong>${escapeHTML(step.label)}</strong> after `+
+        `${escapeHTML(formatNavigationDuration(step.atHours,24))} on this leg`+
+        (step.todayHours!==null?
+          ` (${escapeHTML(formatNavigationDuration(step.todayHours,24))} traveled today)`:
+          "")+
+        (step.hours?(isRestUnderway(step.action)?
+          ` — ${escapeHTML(formatNavigationDuration(step.hours,24))} resting while underway`:
+          ` (+${escapeHTML(formatNavigationDuration(step.hours,24))})`):"")+
+        (step.startedTimeLabel?` — World time: ${escapeHTML(step.startedTimeLabel)}`:"")+
+        (step.endedTimeLabel&&step.endedTimeLabel!==step.startedTimeLabel?
+          ` to ${escapeHTML(step.endedTimeLabel)}`:
+          (step.hours&&!isRestUnderway(step.action)&&step.endedTimeLabel===step.startedTimeLabel?
+            " (World clock unchanged)":""))+"</li>":
+        `<li class="atlas-journey-direction">${escapeHTML(step.instruction)} — ${escapeHTML(displayDistance(Number(step.distance)))}</li>`).join("");
+      // Use the same tolerance as the confirmed-arrival predicate.
+      const percent=leg.completedPercent>=99.999?100:Math.floor(leg.completedPercent);
+      return `<section class="atlas-journey-leg" aria-label="${sectionLabel}">`+
+        `<div class="atlas-journey-leg-header"><${heading}>${sectionLabel}: ${escapeHTML(leg.sceneName)}</${heading}>`+
+        `<span class="atlas-journey-leg-progress-label">${percent}% confirmed</span></div>`+
+        `<div class="atlas-journey-progress-track" role="progressbar" aria-label="${sectionLabel} confirmed progress" `+
+        `aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}">`+
+        `<span class="atlas-journey-progress-fill" style="width:${percent}%"></span></div>`+
+        `<p>Distance: ${escapeHTML(displayDistance(Number(leg.distance)))}; `+
+        `Moving time: ${escapeHTML(formatNavigationDuration(leg.movingHours,24))}; `+
+        `Confirmed progress: ${percent}% `+
+        `(${escapeHTML(formatNavigationDuration(leg.completedMovingHours,24))} moving).</p>`+
+        participants+livestock+
+        (transportLines||landMethod||convoyLines||serviceLines?
+          `<div class="atlas-journey-leg-group"><h4>Confirmed Transportation and Transfers</h4>`+
+          `<ul>${transportLines}${landMethod}${convoyLines}${serviceLines}</ul></div>`:"")+
+        `<div class="atlas-journey-leg-group"><h4>Confirmed Directions and Stops</h4>`+
+        `<p class="atlas-journey-caption">The full planned route remains in this Journey's saved metadata. `+
+        `Only confirmed travel and approved stops appear below.</p>`+
+        `<ol>${rows}</ol></div>`+"</section>";
+    }).join("");
+    return group.length===1?segments:
+      `<section class="atlas-journey-leg" aria-label="${label}"><h3>${label}</h3>`+
+      segments+"</section>";
   }).join("");
   const movingText=escapeHTML(formatNavigationDuration(confirmedMoving,24));
   const downtimeText=escapeHTML(formatNavigationDuration(confirmedBreaks,24));

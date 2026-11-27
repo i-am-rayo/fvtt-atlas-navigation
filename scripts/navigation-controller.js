@@ -6,7 +6,7 @@ import { calculateSceneRoadRoute } from "./navigation-foundry.js";
 import { roadStrokeSpans } from "./road-appearance.js";
 import { drawNavigationLine, drawNavigationMarker } from "./navigation-graphics.js";
 import { navigationCanvasLegPaths } from "./navigation-render-path.js";
-import {captureApprovedJourneyPath,assessApprovedRoutePosition} from "./navigation-approved-path.js";
+import {captureApprovedJourneyPath,assessApprovedRoutePosition,assessApprovedJourneyRecovery} from "./navigation-approved-path.js";
 import { createGuidedTokenWaypoints } from "./navigation-token-travel.js";
 import { partyTokenCanvasCenter } from "./navigation-party-origin.js";
 import { planGuidedTravelChunks,waitForTokenTravelAnimation,MAX_GUIDED_CHUNKS,
@@ -59,20 +59,21 @@ import { atlasDisplayDistance,atlasDisplaySpeed,atlasFormatMeasure,
   atlasSceneSpeedFromDisplay }
   from "./navigation-measure-units.js";
 import { readGroupTransportation,projectGroupTransportation,
-  groupMethodCapacityStatus,groupMethodFareEstimate,groupMethodResourceInventory }
+  groupMethodCapacityStatus,groupMethodFareEstimate,groupMethodResourceInventory,
+  planOwnedVehicleService,assessGroupCrewRoster,validateConfirmedOwnedVehicleApproval }
   from "./navigation-group-transport.js";
-import { dndCurrencyBreakdown,mixedTransportFareBreakdown } from "./navigation-currency.js";
+import { dndCurrencyBreakdown,mixedTransportFareBreakdown,walkingCargoFareBreakdown,formatExactTransportationFare } from "./navigation-currency.js";
 import { resolveTransportationOperation,draftTransportationOperation,quoteTransportationService,
-  assessHiredTransportAvailability,readLivestockFarePercent }
+  assessHiredTransportAvailability,readLivestockFarePercent,resolveHiredServiceLevel,validateHiredServiceApproval }
   from "./navigation-transport-service.js";
 import { openAtlasGroupTransportation } from "./navigation-group-transport-settings.js";
 import { offersAtOrigin,checkpointOffers,saveCheckpointOffers,
-  checkpointOfferMethod,transportationMethodOverrideDelta }
+  checkpointOfferMethod,transportationMethodOverrideDelta,applyTransportationMethodOverrides }
   from "./checkpoint-transportation.js";
 import { TRAVEL_PRESET_SETTING,validateTravelPresets } from "./travel-preset-model.js";
 import { atlasDebug,atlasWarn } from "./atlas-debug.js";
 import {publishAtlasJourneyAnnouncement} from "./atlas-announcement-runtime.js";
-import { navigationJourneyTitle,journeyWorldStamp,verifiedJourneyDestinationName } from "./navigation-journey-title.js";
+import { navigationJourneyTitle,journeyWorldStamp,verifiedJourneyDestinationName,describeNavigationRouteContext } from "./navigation-journey-title.js";
 import { createJourneyRecord,checkpointJourneyRecord,resumeJourneyRecord,
   validateJourneyRecord,eligibleJourneyRecord,isUnfinishedJourneyLeg,
   journeyRecoveryRouteDestination,findRecoverableJourney,saveJourneyJournal,
@@ -95,7 +96,9 @@ import {renderNavigationTravelMethodSelector,renderNavigationTravelMethodButtons
 import {renderRecoveredVoyageOperation,renderCurrentTransferMethodSelector}
   from "./navigation-transfer-controls-view.js";
 import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote,
-  renderNavigationTransportApproval,describeJourneyMountFare}
+  renderNavigationTransportApproval,describeJourneyMountFare,describeOwnedUnitStaffing,
+  describeTransportationFareRows,renderNavigationRouteContext,describeJourneyCrewEstimate,
+  describeOwnedApprovalOverview,navigationApprovalPosition}
   from "./navigation-transport-summary-view.js";
 import {renderNavigationSummaryMetrics,renderNavigationSummaryStatus}
   from "./navigation-summary.js";
@@ -174,19 +177,19 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportOperation="normal";
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
-    this.transportJourneyOverrides=null;
+    this.transportJourneyOverrides=null;this.transportServiceLevel=null;
     this.convoyEnabled=false;
     this.convoyCargoQuantities={};
     this.convoyPace=null;
     this.mixedKeys=[];
-    this.mixedMethodOverrides={};
+    this.mixedMethodOverrides={};this.mixedServiceLevels={};
     this.mixedAssignments={};
     this.mixedRiderCounts={};
     this.mixedUnits={};
     this.livestockDecisions={};
     this.transferSelections={};
     this.transferLegOverrides={};
-    this.transferLegOperations={};
+    this.transferLegOperations={};this.checkpointOwnedDraft=null;this.mixedOwnedDrafts={};
     this.pendingTransfer=null;
     this.start = null;
     this.end = null;
@@ -266,19 +269,19 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportOperation="normal";
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
-    this.transportJourneyOverrides=null;
+    this.transportJourneyOverrides=null;this.transportServiceLevel=null;
     this.convoyEnabled=false;
     this.convoyCargoQuantities={};
     this.convoyPace=null;
     this.mixedKeys=[];
-    this.mixedMethodOverrides={};
+    this.mixedMethodOverrides={};this.mixedServiceLevels={};
     this.mixedAssignments={};
     this.mixedRiderCounts={};
     this.mixedUnits={};
     this.livestockDecisions={};
     this.transferSelections={};
     this.transferLegOverrides={};
-    this.transferLegOperations={};
+    this.transferLegOperations={};this.checkpointOwnedDraft=null;this.mixedOwnedDrafts={};
     this.pendingTransfer=null;
     // Favor the manually assigned Atlas party explorer when it can actually
     // provide a valid Scene-to-Atlas origin. Otherwise retain map-point mode.
@@ -378,10 +381,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.routeRevision=atlas.revision;
     // Recalculate path/quotes without discarding a confirmed disembark
     // manifest or a GM-edited mount draft. Deliberate clear() resets it.
-    this.mixedMethodOverrides={};
+    this.mixedMethodOverrides={};this.mixedServiceLevels={};
     this.transferSelections={};
     this.transferLegOverrides={};
-    this.transferLegOperations={};
+    this.transferLegOperations={};this.checkpointOwnedDraft=null;this.mixedOwnedDrafts={};
     this.result=null;
     this.itinerary=null;
     this.travelProgress=0;
@@ -406,7 +409,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
           const first=projectTransportationRouteLegs(this.result,atlas,presets.presets).legs[0];
           if(first?.surface!=="land"){
-            this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedAssignments={};this.mixedUnits={};
+            this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedServiceLevels={};this.mixedAssignments={};this.mixedUnits={};
             this.mixedRiderCounts={};this.convoyPace=null;
           }
         }
@@ -515,7 +518,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(arrangement==="owned"){
         if(id!=="walking"&&!availability.owned.has(id))
           throw Error("The Group no longer owns the selected travel method.");
-        return {key,arrangement,method:{...world,...this.mixedMethodOverrides?.[key]}};
+        return {key,arrangement,method:applyTransportationMethodOverrides(world,this.mixedMethodOverrides?.[key])};
       }
       const offer=availability.offers.get(id);
       if(!offer)throw Error("Selected hired service is no longer offered at departure.");
@@ -524,8 +527,35 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(!method.hireEnabled)
         throw Error("Selected hired service is no longer available.");
       return {key,arrangement,
-        method:{...method,...this.mixedMethodOverrides?.[key]},
-        checkpointId:offer.checkpointId,units:this.mixedUnits[key]??undefined};
+        method:applyTransportationMethodOverrides(method,this.mixedMethodOverrides?.[key]),
+        checkpointId:offer.checkpointId,units:this.mixedUnits[key]??undefined,
+         serviceLevel:this.mixedServiceLevels[key]??null};
+    });
+  }
+
+  /** One transient selected-unit scope per owned mixed method. */
+  mixedOwnedLegs(party,choices){
+    return choices.filter(e=>e.arrangement==="owned"&&e.method.kind==="vehicle").map(entry=>{
+      const ownedScope=JSON.stringify([this.scene.id,this.getPartyToken()?.actor?.id,
+        this.result.start,this.result.end,entry.key,"mixed"]);
+      const leg={ownedScope,selectedOption:{value:entry.key,...entry},selectedValue:entry.key,
+        ownedUnitChoices:[],namedCrew:[],errors:[],legend:entry.method.name+" operating units"};
+      try{
+        Object.assign(leg,this.ownedUnitsFor(party.previewRoster,entry.method,ownedScope,
+          this.mixedOwnedDrafts?.[entry.key]??null));
+        for(const unit of leg.operatedUnits??[]){
+          const resource=party.previewRoster.members.find(m=>m.actorId===unit.actorId);
+          for(const crew of resource?.crewRoster?.find(u=>u.unitIndex===unit.unitIndex)?.named??[]){
+            const member=party.roster.members.find(m=>m.actorId===crew.actorId);
+            if(member)leg.namedCrew.push({actorId:crew.actorId,name:member.actorName,
+              label:resource.actorName+" — Unit "+unit.unitIndex+(crew.duty?" · "+crew.duty:"")});
+          }
+        }
+      }catch(error){
+        leg.operatedUnits=this.mixedOwnedDrafts?.[entry.key]?.units??[];
+        leg.errors.push(error.message??String(error));
+      }
+      return leg;
     });
   }
 
@@ -548,10 +578,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         passengers:Math.max(1,original?.quantity??1)};
     });
     const selected=this.mixedLandChoices(available);
+    const ownedLegs=this.mixedOwnedLegs(party,selected);
+    if(ownedLegs.some(l=>l.errors.length))
+      throw Error(ownedLegs.flatMap(l=>l.errors).join(" "));
     const hired=selected.map(entry=>{
       if(entry.arrangement!=="owned"||entry.method.id==="walking")return entry;
+      const leg=ownedLegs.find(l=>l.selectedValue===entry.key);
       return {...entry,resources:groupMethodResourceInventory(
-        party.previewRoster,entry.method)};
+        party.previewRoster,entry.method),
+        ...(leg?.operatedUnits!==undefined?{projection:party.previewRoster,
+          operatedUnits:leg.operatedUnits}:{})};
     });
     const sceneUnits=this.scene?.grid?.units?.trim()||"";
     const walking=walkingTravel??this.resolveTravel({excludeConvoy:true}).travel;
@@ -562,6 +598,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const assignments=suggestedTravelAssignments(
       travelers.map(t=>({id:t.actorId})),selected,
       this.mixedAssignments,resources);
+    for(const leg of ownedLegs)for(const crew of leg.namedCrew)
+      if(Object.hasOwn(assignments,crew.actorId))assignments[crew.actorId]=leg.selectedValue;
     const leg=this.currentLandTransferLeg();
     const distance=leg?.distance??this.result.distance;
     const weighted=leg?.weightedDistance??this.result.cost;
@@ -578,13 +616,62 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** One planning step: a single method shows checkboxes; mixed methods show
    * drag/drop assignments. The submitted Journey still owns one Group token.
    */
+  /** A completed checkpoint may retain its Journal while the next leg
+   * is reviewed. An unfinished approval or unresolved decision is locked. */
+  canEditJourneyDraftAllocations(){
+    return Boolean(game.user?.isGM)&&
+      !this.travelSession&&!this.journalStarting&&!this.suspendedNativeSession&&
+      !this.pendingTransfer&&!this.completedRoute&&
+      (!this.recoverableJourney||Boolean(this.recoveryRecord))&&
+      !isUnfinishedJourneyLeg(this.recoveryRecord);
+  }
+
+  renderJourneyLivestockDraft(options){
+    const {scene,result,routeRevision,travelMethod,transportArrangement}=this;
+    const transfer=this.transferSelections[0];
+    const canEdit=()=>!options.disabled&&this.canEditJourneyDraftAllocations()&&
+      this.scene===scene&&this.result===result&&this.routeRevision===routeRevision&&
+      this.travelMethod===travelMethod&&this.transportArrangement===transportArrangement&&
+      this.transferSelections[0]===transfer;
+    return renderJourneyLivestockBoarding({...options,decisions:this.livestockDecisions,
+      disabled:!canEdit(),onChange:(id,quantity)=>{
+        if(!canEdit())return;
+        this.livestockDecisions={...this.livestockDecisions,[id]:quantity};
+        void this.render(true);
+      }});
+  }
+
   renderTravelersAndPace(party,availability,{disabled=false,mixedFare=null,
-    singleChoice=null,transferColumns=false,mountBoard=null}={}){
+    singleChoice=null,transferColumns=false,mountBoard=null,ownedLeg=null}={}){
+    // DOM disabled state is only a snapshot; recheck on every callback.
+    const canEdit=()=>!disabled&&this.canEditJourneyDraftAllocations();
+    disabled=!canEdit();
     const root=el("div");
     root.style.cssText="display:grid;gap:.6rem;padding-top:.45rem;";
     const all=partyTravelerRoster(party.previewRoster);
+    const passengerIds=new Set(all.map(t=>t.id));
     const picked=new Set(party.selectedIds);
-    const members=all.filter(t=>picked.has(t.id));
+    const selectedOwned=ownedLeg?.operatedUnits!==undefined&&
+      ownedLeg?.selectedOption?.arrangement==="owned";
+    const ownedDraft=selectedOwned?ownedLeg.ownedDraft:null;
+    if(selectedOwned){
+      singleChoice=ownedLeg.selectedOption;
+      transferColumns=false;
+      for(const unit of ownedDraft?.units??[]){
+        for(const crew of unit.namedCrew){
+          const label=unit.name+" — Unit "+unit.unitIndex+(crew.duty?" · "+crew.duty:"");
+          const traveler=all.find(t=>t.id===crew.actorId);
+          if(traveler){
+            traveler.seats=Math.max(0,traveler.seats-1);
+            traveler.crew=label;
+          }else{
+            all.push({id:crew.actorId,name:crew.name,seats:0,crew:label,fixed:true});
+            picked.add(crew.actorId);
+          }
+        }
+      }
+    }
+    let members=all.filter(t=>picked.has(t.id));
     const sceneUnits=this.scene?.grid?.units?.trim()||"";
     const showSpeed=n=>atlasDisplaySpeed(n,sceneUnits,game.settings,game.system?.id);
     const speedUnit=n=>n==="mi/hour"?"mph":n==="km/hour"?"kph":n;
@@ -601,19 +688,43 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           return [{key,method,arrangement:this.transportArrangement,
             units:this.mixedUnits[key]??1}];})();
       resources=Object.fromEntries(options.filter(o=>
-        o.arrangement==="owned"&&o.method.id!=="walking")
+        !selectedOwned&&o.arrangement==="owned"&&o.method.id!=="walking")
         .map(o=>[o.key,groupMethodResourceInventory(
           party.previewRoster,o.method)]));
     }catch(error){
       root.append(el("small",error.message??String(error)));return root;
     }
+    const mixedOwned=mixed?this.mixedOwnedLegs(party,options):[];
+    let mixedPlan=null;
+    if(mixedOwned.length){try{mixedPlan=this.mixedLandPlan();}catch{/* Invalid draft has no quote. */}}
+    const crewMethods=new Map();
+    for(const leg of mixedOwned)for(const crew of leg.namedCrew){
+      if(crewMethods.has(crew.actorId))continue;
+      crewMethods.set(crew.actorId,leg.selectedValue);
+      let traveler=all.find(t=>t.id===crew.actorId);
+      if(!traveler){
+        traveler={id:crew.actorId,name:crew.name,seats:0};
+        all.push(traveler);picked.add(crew.actorId);
+      }
+      traveler.crew=crew.label;
+      if(picked.has(crew.actorId)){
+        traveler.seats=Math.max(0,traveler.seats-1);traveler.fixed=true;
+      }
+    }
+    members=all.filter(t=>picked.has(t.id));
     const assignments=suggestedTravelAssignments(members,options,
       this.mixedAssignments,resources);
+    for(const [id,key] of crewMethods)if(picked.has(id))assignments[id]=key;
     const descriptions=options.map(entry=>{
       const method=entry.method;
-      const speed=method.id==="walking"?walkingSpeed:
-        convertGroupSpeed(method.speedMph,"mph",sceneUnits);
-      const shown=showSpeed(speed);
+      const mixedUnitLeg=mixedOwned.find(l=>l.selectedValue===entry.key);
+      const selectedMixed=mixedUnitLeg?.operatedUnits!==undefined;
+      const mixedApproval=mixedPlan?.methods.find(m=>m.key===entry.key)?.ownedApproval;
+      const speed=selectedMixed?(mixedApproval?convertGroupSpeed(mixedApproval.speedMph,"mph",sceneUnits):null):
+        selectedOwned?(ownedDraft?
+        convertGroupSpeed(ownedDraft.speedMph,"mph",sceneUnits):null):
+        method.id==="walking"?walkingSpeed:convertGroupSpeed(method.speedMph,"mph",sceneUnits);
+      const shown=Number.isFinite(speed)?showSpeed(speed):null;
       const total=resources[entry.key]?.reduce((n,r)=>
         n+r.quantity*r.capacity,0)??0;
       const hires=entry.arrangement==="hire";
@@ -623,7 +734,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         assignedSeats/Math.max(1,method.capacity))):null;
       const count=hires?this.mixedUnits[entry.key]??minimumUnits:null;
       const fare=mixedFare?.rows.find(row=>row.key===entry.key);
-      const terms=hires?[{cost:method.hireCostCp,basis:method.hireBasis,applies:method.hireApplies}]:
+      const terms=hires?[{cost:method.hireServiceLevels?.[entry.serviceLevel]?.hireCostCp??method.hireCostCp,
+          basis:method.hireBasis,applies:method.hireApplies}]:
         (resources[entry.key]??[]).filter(r=>fare?.resourceIds.includes(r.actorId))
           .map(r=>({cost:r.method.costCp,basis:r.method.costBasis,applies:r.method.costApplies}));
       const rates=[...new Set(terms.filter(r=>r.cost>0&&r.basis!=="none")
@@ -633,35 +745,44 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         ...(mixed&&method.id!=="walking"?{
           costLabel:fare?.label??"Estimate unavailable",
           costDetail:fare?fare.units+" unit"+(fare.units===1?"":"s")+
-            (rates.length?" · "+rates.join(" + "):""):null}:{}),
-        speed,speedLabel:shown.value.toFixed(2)+" "+speedUnit(shown.unit),
-        capacity:method.id==="walking"?null:hires?
-          count*method.capacity:total,
+            (rates.length?" · "+rates.join(" + "):"")+
+             (entry.serviceLevel?" · "+entry.serviceLevel+" service (shared travel day)":""):null}:{}),
+        speed,speedLabel:shown?shown.value.toFixed(2)+" "+speedUnit(shown.unit):"Unavailable",
+        capacity:selectedMixed?mixedApproval?.passengerCapacity??null:
+          selectedOwned?ownedDraft?.passengerCapacity??null:
+          method.id==="walking"?null:hires?count*method.capacity:total,
         minimumUnits,
         available:hires?method.hireUnlimited===false?
           method.hireQuantity:null:null};
     });
     const setIncluded=(id,include)=>{
-      if(disabled)return;
+      if(!canEdit()||!passengerIds.has(id)||
+          !include&&crewMethods.has(id))return;
       const next=new Set(party.selectedIds);
       if(include)next.add(id);else next.delete(id);
-      this.partySelectionMode=next.size===all.length?"all":"selected";
-      this.partySelectedIds=next.size===all.length?[]:[...next];
+      this.partySelectionMode=next.size===passengerIds.size?"all":"selected";
+      this.partySelectedIds=next.size===passengerIds.size?[]:[...next];
       this.convoyPace=null;
       void this.render(true);
     };
     root.append(renderNavigationTravelRoster({
-      travelers:all,selectedIds:party.selectedIds,
+      travelers:all,selectedIds:[...picked],
+      ownedSummary:selectedOwned?(ownedDraft?
+        ownedDraft.units.length+" operated unit(s) · "+ownedDraft.passengerSeats+"/"+
+        ownedDraft.passengerCapacity+" passenger seats · "+descriptions[0].speedLabel:
+        "Selected-unit estimate unavailable. Review operating units and traveler selection."):null,
       methods:descriptions,assignments,
       units:this.mixedUnits,disabled,previewOnly:party.partial,
       transferColumns,mountBoard,onInclude:setIncluded,
       onAssign:(id,key)=>{
-        if(disabled||!descriptions.some(m=>m.key===key))return;
+        if(!canEdit()||!passengerIds.has(id)||crewMethods.has(id)&&crewMethods.get(id)!==key||
+            !descriptions.some(m=>m.key===key))return;
         this.mixedAssignments={...this.mixedAssignments,[id]:key};
         if(!picked.has(id))setIncluded(id,true);
         else {this.convoyPace=null;void this.render(true);}
       },
       onUnits:(key,count)=>{
+        if(!canEdit())return;
         const method=descriptions.find(m=>m.key===key);
         if(!method||method.arrangement!=="hire"||
             !Number.isInteger(count)||count<1||count>100||
@@ -673,7 +794,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         this.convoyPace=null;void this.render(true);
       }
     }));
-    if(mixed){
+    for(const leg of mixedOwned){
+      root.append(this.renderOwnedOperatingUnits(leg,units=>this.setMixedOperatedUnits(leg.selectedValue,units)));
+    }
+    if(mixed&&descriptions.every(d=>Number.isFinite(d.speed))){
       const speeds=descriptions.map(d=>({...d,speed:showSpeed(d.speed).value}));
       const slowestVehicle=Math.min(...descriptions.filter(d=>
         d.key!=="owned|walking").map(d=>d.speed));
@@ -682,6 +806,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         methods:speeds,selected,unit:speedUnit(showSpeed(walkingSpeed).unit),
         maxSpeed:showSpeed(slowestVehicle).value,disabled,
         onPace:value=>{
+          if(!canEdit())return;
           this.convoyPace=value===null?null:atlasSceneSpeedFromDisplay(
             value,sceneUnits,game.settings,game.system?.id,slowestVehicle);
           void this.render(true);
@@ -690,6 +815,33 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(choice)root.append(choice);
     }
     return root;
+  }
+
+  /** GM-only display projection. Saved final intent is distinct from a clipped
+   * route endpoint; this does not change either coordinate or approve travel. */
+  routeReviewContext(route=this.result,{next=route?.end,final=null}={}){
+    if(!game.user?.isGM||!this.scene||route?.status!=="ok")return null;
+    const record=this.recoveryRecord;
+    const destination=final??(record&&(record.routeTargets||isUnfinishedJourneyLeg(record))?
+      record.destination:this.end??route.end);
+    const atlas=this.atlasProvider(this.scene);
+    const previous=record?.legs?.at(-1);
+    const arrivalId=previous?.transport?.arrivalCheckpointId;
+    const arrival=this.sourceMode==="party"&&record?.sceneId===this.scene.id&&
+      record.status==="paused"&&previous?.completedPercent>=99.999&&arrivalId?
+      atlas.checkpoints?.find(checkpoint=>checkpoint.id===arrivalId):null;
+    const origin=arrival&&atlas.nodes?.find(node=>node.id===arrival.nodeId);
+    return describeNavigationRouteContext(atlas,{
+      from:origin??route.start,next,final:destination,party:this.sourceMode==="party"});
+  }
+
+  /** GM-only projection of a durable approved leg, including checkpoint decisions.
+   * Never substitute a stale draft or a nearest marker for Journal coordinates. */
+  approvedRouteContext(record){
+    if(!game.user?.isGM||!this.scene||record?.sceneId!==this.scene.id)return null;
+    const leg=record.legs?.at(-1);
+    return describeNavigationRouteContext(this.atlasProvider(this.scene),{
+      from:leg?.departure,next:leg?.destination,final:record.destination,party:true});
   }
 
   /** Confirm an explicit per-rider manifest and then re-read every authority:
@@ -702,7 +854,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       throw Error(this.assessTravelMethod().reason??
         "Mixed transportation is not ready for GM confirmation.");
     const routeBefore=this.result;
+    const routeSignature=JSON.stringify(routeBefore);
     const proposed=this.mixedLandPlan();
+    const belowMinimum=proposed.methods.some(m=>m.ownedApproval?.belowMinimum);
     const shown=atlasDisplaySpeed(proposed.speedPerHour,this.scene.grid.units,
       game.settings,game.system?.id);
     const units=shown.unit==="mi/hour"?"mph":
@@ -715,22 +869,41 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const notTraveling=roster?.members?.filter(m=>!selectedIds.has(m.id))
       .map(m=>m.name).join(", ");
     const content=renderNavigationTransportApproval({
+      routeContext:this.routeReviewContext(guidedLeg??this.result),
       destination:guidedLeg?"Current leg to "+guidedLeg.checkpoint.name:null,
       rows:proposed.methods.map(method=>({
         method:method.methodName,
         travelers:manifest.find(entry=>entry.key===method.key)?.travelers??
           (method.role==="cargo"?"Cargo only":"—"),
+        travelerCount:method.passengers,
         units:method.role==="walking"?"—":String(method.units),
         cost:method.role==="walking"?"—":
           (fare.rows.find(entry=>entry.key===method.key)?.label??"—")
       })),
+      fareRows:proposed.methods.flatMap(m=>describeTransportationFareRows(
+        m.ownedApproval??m.serviceApproval,{owned:Boolean(m.ownedApproval),methodName:m.methodName,
+          formatCoins:true,currencyConfig:globalThis.CONFIG?.DND5E?.currencies})),
       metrics:[
         ["Total travelers",String(proposed.methods.reduce((n,m)=>n+m.passengers,0))],
         ["Group travel speed",shown.value.toFixed(2)+" "+units],
         ["Estimated moving time",formatNavigationDuration(proposed.movingHours,24)],
         ["Estimated transportation cost",fare.total.label]
       ],
-      notes:[notTraveling?"Not traveling: "+notTraveling:null]
+      notes:[notTraveling?"Not traveling: "+notTraveling:null,
+        "Fare components are before rounding; each method is rounded independently, then summed.",
+        ...proposed.methods.filter(m=>m.ownedApproval).map(m=>{
+          const a=m.ownedApproval;
+          return m.methodName+": "+a.passengerSeats+"/"+a.passengerCapacity+
+            " passenger seats · "+a.dailyHours+"h/day shared convoy schedule · "+
+            a.units.map(describeOwnedUnitStaffing).join("; ")+ "."+
+            (a.belowMinimum?" Below-minimum staffing requires acknowledgement.":"");
+        }),
+        ...proposed.methods.filter(m=>m.serviceApproval).map(m=>{
+          const a=m.serviceApproval;
+          return m.methodName+": "+a.serviceLevel+" service · "+a.advertisedCrew+
+            " advertised crew per unit · service supports "+a.advertisedDailyHours+
+            "h/day; convoy travels "+a.dailyHours+"h/day. Fare reflects the shared schedule.";
+        })]
     });
     if(proposed.gmWalkingPaceOverride){
       const ordinary=atlasDisplaySpeed(proposed.suggestedSpeedPerHour,
@@ -745,14 +918,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       "no booking, boarding, payment or Actor changes occur automatically."));
     const confirmed=await foundry.applications.api.DialogV2.confirm({
       window:{title:"Confirm mixed-party transportation"},
-      content,rejectClose:false,modal:true
+        position:navigationApprovalPosition(),
+      content,rejectClose:false,modal:true,
+      yes:{label:belowMinimum?"Acknowledge staffing and travel":"Start leg"},
+      no:{label:"Back to plan"}
     });
-    if(!confirmed)return null;
-    if(this.travelSession||this.journalStarting||this.pendingTransfer||
+    if(confirmed!==true)return null;
+    if(this.travelSession||this.journalStarting||this.pendingTransfer||this.suspendedNativeSession||
+        !token.canUserModify?.(game.user,"update")||!this.canvasProvider()?.ready||
+        this.canvasProvider()?.scene?.id!==view.scene?.id||
         !game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update")||
         this.scene.id!==view.scene?.id||
         this.atlasProvider(this.scene).revision!==this.routeRevision||
-        this.getPartyToken()?.id!==token.id||this.result!==routeBefore||this.result?.status!=="ok")
+        this.getPartyToken()?.id!==token.id||this.result!==routeBefore||
+        JSON.stringify(this.result)!==routeSignature||this.result?.status!=="ok")
       throw Error("Scene, party explorer or route changed during mixed travel confirmation.");
     const current=this.atlasPoint(view,this.atlasProvider(this.scene),
       partyTokenCanvasCenter(token,this.scene.grid.size));
@@ -765,13 +944,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(party?.partial||party?.empty)
         throw Error("A subset preview cannot authorize movement of the entire Group.");
       if(JSON.stringify(prepareGuidedTransportLeg(this.result,
-          this.transportationTransitionPlan()?.legs[0]))!==JSON.stringify(guidedLeg))
+          this.transportationTransitionPlan()?.legs[0],{draft:true}))!==JSON.stringify(guidedLeg))
         throw Error("The checkpoint leg changed during mixed travel confirmation.");
     }
     if(JSON.stringify(updated)!==JSON.stringify(proposed))
       throw Error("Passenger assignments, vehicle stock, speeds, fares or "+
         "World/Scene rules changed during confirmation. Review the updated Journey.");
-    return validateMixedLandConvoy(updated);
+    return validateMixedLandConvoy({...updated,methods:updated.methods.map(m=>m.ownedApproval?
+      {...m,ownedApproval:{...m.ownedApproval,belowMinimumAcknowledged:m.ownedApproval.belowMinimum}}:m)});
   }
 
   /** Only an explicitly offered, per-unit, land vehicle can accompany walkers as cargo. */
@@ -893,14 +1073,37 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const baseline=offer?checkpointOfferMethod({methodId:offer.methodId,mode:offer.mode,
       overrides:offer.overrides},method):method;
     return method.id===this.travelMethod&&this.transportJourneyOverrides?
-      {...baseline,...this.transportJourneyOverrides}:baseline;
+      applyTransportationMethodOverrides(baseline,this.transportJourneyOverrides):baseline;
   }
 
   /** Completed/suspended Journeys retain their approved operation. A fresh
    * route follows the effective edited vehicle's continuous setting. */
   plannedTravelOperation(method){
-    return isUnfinishedJourneyLeg(this.recoveryRecord)?this.transportOperation:
-      draftTransportationOperation(method,this.transportOperation);
+    if(isUnfinishedJourneyLeg(this.recoveryRecord))return this.transportOperation;
+    if(this.transportArrangement==="hire"&&this.transportServiceLevel)
+      return resolveHiredServiceLevel(method,this.transportServiceLevel).operation;
+    return draftTransportationOperation(method,this.transportOperation);
+  }
+
+  /** One selected-tier land estimate used by preview, approval and boarding.
+   * Legacy reference estimates retain their established paths. */
+  planLandHiredService(method,party=null){
+    if(this.transportArrangement!=="hire"||!this.transportServiceLevel)return null;
+    if(method?.kind!=="vehicle"||method.surface!=="land"||this.result?.status!=="ok")
+      throw Error("Choose a hired land vehicle and a calculated route for this service.");
+    const {sceneUnit,travel}=this.resolveTravel();
+    const distanceMi=convertGroupSpeed(this.result.distance,sceneUnit,"mi");
+    if(!Number.isFinite(distanceMi)||!Number.isFinite(travel.speed)||travel.speed<=0)
+      throw Error("Cannot estimate hired service without valid route units and speed.");
+    const regularHours=resolveNavigationTravelRules({settings:game.settings,
+      systemId:game.system?.id,actorHoursPerDay:travel.hoursPerDay}).dailyHours??8;
+    const mounts=party?.roster?groupLivestockResources(party.roster):[];
+    const livestockCount=mounts.length?countJourneyLivestock(party.roster,this.livestockDecisions):0;
+    const movingHours=navigationHours(this.result.terrainAware?this.result.cost:this.result.distance,travel.speed);
+    const quote=quoteTransportationService(method,{arrangement:"hire",serviceLevel:this.transportServiceLevel,
+      movingHours,distanceMi,travelers:party?.travelerCount??1,livestockCount,regularHours,
+      hireTerms:this.transportHireTerms,livestockPercent:readLivestockFarePercent(game.settings)});
+    return {quote,approval:validateHiredServiceApproval(quote)};
   }
 
   /**
@@ -920,7 +1123,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const restored=restoreApprovedTransportPlan(this.result,projected,
       this.recoveryRecord,catalog,this.recoveryOperationOverride,{
         atlas,gridSize:this.scene.grid.size,gridDistance:this.scene.grid.distance});
-    if(restored)return restored;
+    if(restored){
+      if(restored.legs[0]?.ownedApproval||restored.legs[0]?.convoy?.methods?.some(m=>m.ownedApproval)){
+        const actor=this.getPartyToken()?.actor;
+        if(game.system?.id!=="dnd5e"||actor?.type!=="group")
+          throw Error("The approved owned vehicle requires its original Group explorer.");
+        priorJourneySelection(this.recoveryRecord,
+          projectGroupTransportation(actor,readGroupTransportation(game.settings),catalog));
+      }
+      return restored;
+    }
     const actor=this.getPartyToken()?.actor;
     let roster=null;
     if(game.system?.id==="dnd5e"&&actor?.type==="group")
@@ -948,8 +1160,6 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       const activeRoster=index===0?(currentParty?.previewRoster??roster):roster;
       if(index===0&&roster&&!currentParty)
         errors.push("The Group traveler or mount draft cannot be validated.");
-      if(index===0&&currentParty?.empty)
-        errors.push("Choose at least one traveler for the current Journey leg.");
       if(index===0&&roster&&this.recoveryRecord?.legs?.at(-1)?.livestock&&
           !isUnfinishedJourneyLeg(this.recoveryRecord)){
         try{countJourneyLivestock(roster,this.livestockDecisions);}
@@ -990,7 +1200,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         return {...leg,options,selectedOption:convoy&&!errors.length?{
           value:"mixed-land",arrangement:"mixed",method:mixedLandTransportMethod}:null,
           selectedValue:"mixed-land",methodName:mixedLandTransportMethod.name,operation:"normal",
-          dailyHours:regularHours,overnightHours:normalDowntime,
+          dailyHours:convoy?.sharedDailyHours??regularHours,
+          overnightHours:convoy?.sharedDailyHours!==undefined?24-convoy.sharedDailyHours:normalDowntime,
           convoy,errors,hours:errors.length?null:convoy?.movingHours??null,
           costCp:errors.length?null:convoy?.totalCp??null,
           narration:["The Group travels together to the next checkpoint."]};
@@ -1000,10 +1211,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       catch(error){errors.push(error.message);}
       const option=selected&&options.find(item=>
         item.value===selected.arrangement+"|"+selected.methodId);
+      let serviceLevel=null;
       if(option){
         const local=this.transferLegOverrides[index];
-        if(local?.selection===option.value)
-          option.method={...option.method,...local.overrides};
+        if(local?.selection===option.value){
+          option.method=applyTransportationMethodOverrides(option.method,local.overrides);
+          serviceLevel=local.serviceLevel??null;
+        }
       }
       if(index>0&&!projected.legs[index-1].transferValid)
         errors.push("A transfer needs an authored checkpoint or landing at the connecting road node.");
@@ -1014,7 +1228,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       // An enabled 24h vehicle runs continuously unless the Journey editor
       // explicitly chose eligible overtime. Never infer this for mixed walkers.
       const inheritedOperation=draftTransportationOperation(option?.method);
-      const operation=this.transferLegOperations[index]??inheritedOperation;
+      let operation=this.transferLegOperations[index]??inheritedOperation;
+      if(serviceLevel!==null){
+        try{
+          if(option?.arrangement!=="hire")throw Error("Choose a hired vehicle for this service level.");
+          operation=resolveHiredServiceLevel(option.method,serviceLevel,regularHours).operation;
+        }catch(error){errors.push(error.message??String(error));}
+      }
       let operationRules=null;
       if(option?.method?.id==="walking"){
         if(operation!=="normal")errors.push("Walking has no crew operating schedule.");
@@ -1023,15 +1243,27 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         try{operationRules=resolveTransportationOperation(option.method,operation,regularHours);}
         catch(error){errors.push(error.message??String(error));}
       }
-      let hours=null,costCp=null,livestock=null,serviceQuote=null;
-      if(option){
+      let hours=null,costCp=null,livestock=null,serviceQuote=null,ownedDraft=null;
+      let ownedUnitChoices=null,operatedUnits,ownedScope=null;
+      if(index===0&&activeRoster&&option?.arrangement==="owned"&&option.method.kind==="vehicle"&&
+          (projected.hasTransitions||checkpointContinuation)){
+        ownedScope=JSON.stringify([this.scene.id,actor?.id,leg.start,leg.end,option.value]);
+        try{
+          ({ownedUnitChoices,operatedUnits}=this.ownedUnitsFor(activeRoster,option.method,ownedScope));
+        }catch(error){errors.push(error.message??String(error));}
+      }
+      if(Array.isArray(operatedUnits)&&!operatedUnits.length)
+        errors.push("Select at least one operating unit.");
+      else if(option){
         let speed=null;
         if(option.method?.id==="walking")speed=walking.speed;
         else if(option.arrangement==="owned"&&roster){
-          const capacity=groupMethodCapacityStatus(activeRoster,option.method);
-          if(!capacity.sufficient)errors.push("Not enough party-owned seats for this leg.");
-          const mph=capacity.effectiveSpeedMph??option.method.speedMph;
-          speed=convertGroupSpeed(mph,"mph",sceneUnit);
+          try{
+            const capacity=groupMethodCapacityStatus(activeRoster,option.method,{operatedUnits});
+            if(!capacity.sufficient)errors.push("Not enough party-owned seats for this leg.");
+            const mph=capacity.effectiveSpeedMph??option.method.speedMph;
+            speed=convertGroupSpeed(mph,"mph",sceneUnit);
+          }catch(error){errors.push(error.message??String(error));}
         }else speed=convertGroupSpeed(option.method.speedMph,"mph",sceneUnit);
         if(!Number.isFinite(speed)||speed<=0)
           errors.push("This method needs compatible Scene distance units and a valid speed.");
@@ -1045,7 +1277,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               const distanceMi=convertGroupSpeed(leg.distance,sceneUnit,"mi");
               if(!Number.isFinite(distanceMi))
                 throw Error("Transport pricing requires a Scene in miles or kilometers.");
-              const ownedQuote=option.arrangement==="owned"&&activeRoster?
+              const ownedQuote=option.arrangement==="owned"&&activeRoster&&operatedUnits===undefined?
                 groupMethodFareEstimate(activeRoster,option.method,{
                   hours,distanceMi,dayHours:regularHours}):null;
               const vehicle=index===0&&roster&&
@@ -1054,8 +1286,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               const mounts=vehicle?groupLivestockResources(roster):[];
               const count=mounts.length?
                 countJourneyLivestock(roster,this.livestockDecisions):0;
-              const quote=quoteTransportationService(option.method,{
-                arrangement:option.arrangement,operation,
+              const ownedPlan=operatedUnits!==undefined?
+                planOwnedVehicleService(activeRoster,option.method,{operatedUnits,
+                  movingHours:hours,distanceMi,regularHours,operation}):null;
+              ownedDraft=ownedPlan?.approval??null;
+              const quote=ownedPlan?.quote??quoteTransportationService(option.method,{
+                arrangement:option.arrangement,operation,serviceLevel,
                 movingHours:hours,distanceMi,travelers:activeRoster?.travelers??1,
                 livestockCount:count,ownedQuote,regularHours,
                 livestockPercent:readLivestockFarePercent(game.settings)});
@@ -1070,16 +1306,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           }
         }
       }
+      if(index===0&&currentParty?.empty&&operatedUnits?.length!==0&&!ownedDraft?.units.some(unit=>unit.namedCrew.length))
+        errors.push("Choose at least one traveler for the current Journey leg.");
       return {...leg,options,selectedOption:option??null,operation,
         dailyHours:operationRules?.dailyHours??null,
         overnightHours:operationRules?.overnightHours??null,
         selectedValue:option?.value??"",
         methodName:option?.method?.name??null,
-        livestock,serviceQuote,
+        livestock,serviceQuote,ownedUnitChoices,operatedUnits,ownedScope,ownedDraft,
         narration:describeTransportationLeg(leg,option?{
           name:option.method.name,kind:option.method.kind,
           surface:leg.surface,arrangement:option.arrangement
-        }:{}),errors,hours,costCp};
+        }:{}),errors,
+        hours:operatedUnits!==undefined&&errors.length?null:hours,
+        costCp:operatedUnits!==undefined&&errors.length?null:costCp};
     });
     const globalSchedule=summarizeTransportationOperatingSchedule(legs);
     return {...projected,hasTransitions:projected.hasTransitions||checkpointContinuation,
@@ -1087,6 +1327,166 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       globalSchedule,totalHours:globalSchedule.totalMovingHours,
       totalElapsedHours:globalSchedule.totalElapsedHours,
       totalCp:globalSchedule.totalFareCp};
+  }
+
+  /** Stable inventory and draft selection shared by ordinary and checkpoint legs. */
+  ownedUnitsFor(roster,method,scope,prior=this.checkpointOwnedDraft){
+    const ownedUnitChoices=groupMethodResourceInventory(roster,method).flatMap(resource=>{
+      const member=roster.members.find(m=>m.actorId===resource.actorId);
+      const assessment=assessGroupCrewRoster(roster,member,method);
+      return Array.from({length:resource.quantity},(_,i)=>({
+        actorId:resource.actorId,unitIndex:i+1,name:resource.actorName,
+        staffing:assessment.units.find(u=>u.unitIndex===i+1)??null
+      }));
+    });
+    const operatedUnits=prior?.scope===scope?prior.units:
+      ownedUnitChoices.some(u=>u.staffing!==null)?
+        ownedUnitChoices.map(({actorId,unitIndex})=>({actorId,unitIndex})):undefined;
+    return {ownedUnitChoices,operatedUnits};
+  }
+
+  /** Ordinary land uses the same pure selected-unit quote, with no transfer
+   * checkpoint fabricated for the end of an otherwise ordinary road route. */
+  ordinaryOwnedLeg(){
+    if(this.sourceMode!=="party"||this.transportArrangement!=="owned"||
+        this.travelMethod==="walking"||this.mixedKeys.length||this.convoyEnabled||
+        this.travelSession||this.pendingTransfer||isUnfinishedJourneyLeg(this.recoveryRecord)||
+        this.result?.status!=="ok"||!this.scene||game.system?.id!=="dnd5e"||
+        this.getPartyToken()?.actor?.type!=="group")return null;
+    const catalog=availableNavigationTravelMethods(game.settings,game.system?.id);
+    const world=catalog.find(m=>m.id===this.travelMethod);
+    if(world?.kind!=="vehicle"||world.surface!=="land")return null;
+    const atlas=this.atlasProvider(this.scene);
+    const presets=validateTravelPresets(game.settings.get(MODULE_ID,TRAVEL_PRESET_SETTING));
+    if(!assessNavigationMethodRoute(world.id,this.result,atlas,presets.presets,{
+        settings:game.settings,systemId:game.system?.id}).guided||
+        this.currentLandTransferLeg())return null;
+    const party=this.partyTravelSelection(catalog);
+    if(!party)return null;
+    const method=this.effectiveTransportMethod(world);
+    const selectedValue="owned|"+method.id;
+    const ownedScope=JSON.stringify([this.scene.id,this.getPartyToken().actor.id,
+      this.result.start,this.result.end,selectedValue,"ordinary"]);
+    const leg={ownedScope,selectedValue,selectedOption:{value:selectedValue,label:method.name,
+      arrangement:"owned",method},errors:[],ownedUnitChoices:[],ownedDraft:null,
+      serviceQuote:null,livestock:null,hours:null,costCp:null};
+    try{
+      Object.assign(leg,this.ownedUnitsFor(party.previewRoster,method,ownedScope));
+      if(leg.operatedUnits===undefined)return leg;
+      const capacity=groupMethodCapacityStatus(party.previewRoster,method,{operatedUnits:leg.operatedUnits});
+      const units=this.scene.grid?.units?.trim()||"";
+      const distanceMi=convertGroupSpeed(this.result.distance,units,"mi");
+      const speed=convertGroupSpeed(capacity.effectiveSpeedMph,"mph",units);
+      if(!capacity.sufficient||!Number.isFinite(speed)||speed<=0||!Number.isFinite(distanceMi))
+        throw Error("Select enough valid operated vehicle passenger seats and a compatible speed.");
+      const hours=navigationHours(this.result.terrainAware?this.result.cost:this.result.distance,speed);
+      const regularHours=resolveNavigationTravelRules({settings:game.settings,
+        systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8;
+      const operation=this.plannedTravelOperation(method);
+      const plan=planOwnedVehicleService(party.previewRoster,method,{
+        operatedUnits:leg.operatedUnits,movingHours:hours,distanceMi,regularHours,operation});
+      const mounts=groupLivestockResources(party.roster);
+      if(mounts.length){
+        countJourneyLivestock(party.roster,this.livestockDecisions);
+        leg.livestock=planJourneyLivestock(party.roster,this.livestockDecisions,{
+          surface:"land",carried:true,methodId:method.id,units:plan.quote.units,
+          capacityPerUnit:method.livestockCapacity,fareCp:plan.quote.livestockFareCp});
+      }
+      Object.assign(leg,{ownedDraft:plan.approval,serviceQuote:plan.quote,hours,
+        costCp:plan.quote.totalCp,operation});
+    }catch(error){
+      // An invalid explicit selection must not fall through to the fleet quote.
+      leg.operatedUnits??=this.checkpointOwnedDraft?.scope===ownedScope?
+        this.checkpointOwnedDraft.units:[];
+      leg.errors.push(error.message??String(error));
+    }
+    return leg;
+  }
+
+  renderOwnedOperatingUnits(leg,onChange){
+    const {scene,result,routeRevision}=this;
+    const canEdit=()=>!leg.recovered&&this.canEditJourneyDraftAllocations()&&
+      !this.recoverableJourney&&this.scene===scene&&this.result===result&&
+      this.routeRevision===routeRevision;
+    const field=el("fieldset");
+    field.append(el("legend",leg.legend??"Operating units (Journey draft)"));
+    const selected=leg.operatedUnits??leg.ownedUnitChoices;
+    const keys=new Set(selected.map(u=>u.actorId+":"+u.unitIndex));
+    for(const unit of leg.ownedUnitChoices){
+      const label=el("label"),input=el("input");
+      input.type="checkbox";input.name="atlas-owned-operating-unit";
+      input.checked=keys.has(unit.actorId+":"+unit.unitIndex);
+      input.disabled=!canEdit();
+      input.setAttribute?.("data-atlas-travel-focus","owned-unit:"+leg.selectedValue+":"+unit.actorId+":"+unit.unitIndex);
+      input.addEventListener("change",()=>{
+        if(input.disabled||!canEdit())return;
+        const next=selected.filter(u=>u.actorId!==unit.actorId||u.unitIndex!==unit.unitIndex);
+        if(input.checked)next.push(unit);
+        void onChange(next).catch(error=>
+          globalThis.ui?.notifications?.error?.(error.message??String(error)));
+      });
+      const staffing=unit.staffing;
+      label.append(input,el("span",unit.name+" — Unit "+unit.unitIndex+
+        (staffing?" · "+staffing.staffedCrew+"/"+staffing.requiredCrew+" crew · "+staffing.tier:
+          " · Roster unconfigured")));
+      field.append(label);
+    }
+    if(selected.some(u=>!leg.ownedUnitChoices.some(v=>v.actorId===u.actorId&&v.unitIndex===u.unitIndex))){
+      const reset=el("button","Review current available units");
+      reset.type="button";reset.disabled=!canEdit();
+      reset.setAttribute?.("data-atlas-travel-focus","owned-unit-reset:"+leg.selectedValue);
+      reset.addEventListener("click",()=>{
+        if(reset.disabled||!canEdit())return;
+        void onChange([]).catch(error=>
+          globalThis.ui?.notifications?.error?.(error.message??String(error)));
+      });
+      field.append(el("p","A selected unit is no longer available. Review the current units."),reset);
+    }
+    if(!selected.length){
+      const message=el("p","Select at least one operating unit.");
+      message.setAttribute?.("role","status");
+      field.append(message);
+    }
+    if(leg.ownedDraft?.belowMinimum)field.append(el("p","Below-minimum staffing. GM acknowledgement will be required before travel."));
+    field.append(el("small","Draft only. The GM must confirm the selected operating units, crew and estimated costs before travel."));
+    return field;
+  }
+
+  /** Current-leg unit selection is a transient draft. The live inventory is
+   * checked again whenever the plan is projected; stale choices never fall
+   * back to operating the entire fleet. */
+  async setCheckpointOperatedUnits(units){
+    return this.setOwnedOperatedUnits(units,()=>this.transportationTransitionPlan()?.legs[0]);
+  }
+  async setLandOperatedUnits(units){
+    return this.setOwnedOperatedUnits(units,()=>this.ordinaryOwnedLeg());
+  }
+  async setMixedOperatedUnits(key,units){
+    if(!this.canDraftTravelMethods()||!this.mixedKeys.includes(key))
+      throw Error("Choose an editable mixed travel method.");
+    return this.setOwnedOperatedUnits(units,()=>{
+      const availability=this.transportAvailability(),party=this.partyTravelSelection(availability.all);
+      return party?this.mixedOwnedLegs(party,this.mixedLandChoices(availability))
+        .find(l=>l.selectedValue===key):null;
+    },draft=>{
+      this.mixedOwnedDrafts={...this.mixedOwnedDrafts,[key]:draft};
+      this.convoyPace=null;
+    });
+  }
+  async setOwnedOperatedUnits(units,project,store=draft=>{this.checkpointOwnedDraft=draft;}){
+    if(!this.canEditJourneyDraftAllocations()||this.recoverableJourney)
+      throw Error("Only a GM may edit operating units before approval.");
+    const leg=project();
+    if(!leg?.ownedScope||!Array.isArray(leg.ownedUnitChoices)||!Array.isArray(units))
+      throw Error("Choose an owned vehicle before selecting units.");
+    const available=new Set(leg.ownedUnitChoices.map(u=>u.actorId+":"+u.unitIndex));
+    const keys=units.map(u=>u?.actorId+":"+u?.unitIndex);
+    if(keys.some(k=>!available.has(k))||new Set(keys).size!==keys.length||
+        units.some(u=>!Number.isInteger(u?.unitIndex)))
+      throw Error("Invalid or duplicate operated unit.");
+    store({scope:leg.ownedScope,
+      units:units.map(({actorId,unitIndex})=>({actorId,unitIndex}))});
+    await this.render(true);
   }
 
   /** Persist a local offer only with an explicit GM save and an unchanged source snapshot. */
@@ -1127,29 +1527,33 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const initialOffers=checkpointId?checkpointOffers(this.scene,checkpointId):null;
     const {openTransportationMethodEditor}=await import("./navigation-transport-settings.js");
     await openTransportationMethodEditor({
-      method:option.method,scope:"journey",
+      method:option.method,scope:"journey",inheritedMethod:origin,
       checkpointName:option.offer?.checkpointName??null,
       journeyOperation:leg.operation,
+      journeyServiceLevel:option.arrangement==="hire"&&option.method.kind==="vehicle"?
+        (this.transferLegOverrides[index]?.serviceLevel??""):null,
       onReset:async()=>{
         delete this.transferLegOverrides[index];
         delete this.transferLegOperations[index];
         await this.render(true);
       },
-      onSave:async (edited,{operation}={})=>{
+      onSave:async (edited,{operation,serviceLevel}={})=>{
         if(this.transportationTransitionPlan()?.legs[index]?.selectedValue!==choice)
           throw Error("The transportation choice changed. Reopen its editor.");
         this.transferLegOverrides[index]={selection:choice,
-          overrides:transportationMethodOverrideDelta(origin,edited)};
+          overrides:transportationMethodOverrideDelta(origin,edited),
+          ...(serviceLevel?{serviceLevel}:{})};
         if(operation)this.transferLegOperations[index]=operation;
         await this.render(true);
         globalThis.ui?.notifications?.info?.("Transportation saved for this trip only.");
       },
-      onSaveCheckpoint:checkpointId?async (edited,{operation}={})=>{
+      onSaveCheckpoint:checkpointId?async (edited,{operation,serviceLevel}={})=>{
         if(this.transportationTransitionPlan()?.legs[index]?.selectedValue!==choice)
           throw Error("The transportation choice changed. Reopen its editor.");
         await this.saveNavigationCheckpointOffer({checkpointId,methodId,world,
           originalOffers:initialOffers,edited});
         delete this.transferLegOverrides[index];
+        if(serviceLevel)this.transferLegOverrides[index]={selection:choice,overrides:{},serviceLevel};
         if(operation)this.transferLegOperations[index]=operation;
         await this.render(true);
       }:null
@@ -1194,24 +1598,30 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     };
     const {openTransportationMethodEditor}=await import("./navigation-transport-settings.js");
     await openTransportationMethodEditor({
-      method:{...baseline,...this.mixedMethodOverrides[key]},scope:"journey",
+      method:applyTransportationMethodOverrides(baseline,this.mixedMethodOverrides[key]),scope:"journey",
+      inheritedMethod:baseline,
       checkpointName:offer?.checkpointName??null,
       // A mixed convoy's one operating schedule is not decided by one vehicle.
-      onSave:async edited=>{
+      journeyServiceLevel:arrangement==="hire"&&baseline.kind==="vehicle"?(this.mixedServiceLevels[key]??""):null,
+      onSave:async (edited,{serviceLevel}={})=>{
         verify();
         this.mixedMethodOverrides[key]=transportationMethodOverrideDelta(baseline,edited);
+        if(serviceLevel)this.mixedServiceLevels[key]=serviceLevel;
+        else delete this.mixedServiceLevels[key];
         await this.render(true);
       },
       onReset:async()=>{
         verify();
-        delete this.mixedMethodOverrides[key];
+        delete this.mixedMethodOverrides[key];delete this.mixedServiceLevels[key];
         await this.render(true);
       },
-      onSaveCheckpoint:offer?async edited=>{
+      onSaveCheckpoint:offer?async (edited,{serviceLevel}={})=>{
         verify();
         await this.saveNavigationCheckpointOffer({checkpointId:offer.checkpointId,
           methodId:id,world,originalOffers:initialOffers,edited});
         delete this.mixedMethodOverrides[key];
+        if(serviceLevel)this.mixedServiceLevels[key]=serviceLevel;
+        else delete this.mixedServiceLevels[key];
         await this.render(true);
       }:null
     });
@@ -1233,29 +1643,31 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const initialOffers=offer?checkpointOffers(this.scene,offer.checkpointId):null;
     const {openTransportationMethodEditor}=await import("./navigation-transport-settings.js");
     await openTransportationMethodEditor({
-      method:baseline,scope:"journey",checkpointName:offer?.checkpointName??null,
+      method:baseline,scope:"journey",inheritedMethod:original,checkpointName:offer?.checkpointName??null,
       journeyOperation:this.transportOperation,
-      onSaveCheckpoint:offer?async (edited,{operation}={})=>{
+      journeyServiceLevel:arrangement==="hire"&&baseline.kind==="vehicle"?(this.transportServiceLevel??""):null,
+      onSaveCheckpoint:offer?async (edited,{operation,serviceLevel}={})=>{
         if(this.travelMethod!==id||this.transportArrangement!=="hire")
           throw Error("The selected travel method changed. Reopen its settings.");
         await this.saveNavigationCheckpointOffer({
           checkpointId:offer.checkpointId,methodId:id,world,
           originalOffers:initialOffers,edited});
-        this.transportJourneyOverrides=null;
+        this.transportJourneyOverrides=null;this.transportServiceLevel=serviceLevel??null;
         if(operation)this.transportOperation=operation;
         this.transportHireTerms=null;this.transportHireDenomination=null;
         this.calculateRoute(this.canvasProvider(),this.atlasProvider(this.scene));
         this.draw();await this.render(true);
       }:null,
       onReset:async()=>{
-        this.transportJourneyOverrides=null;
+        this.transportJourneyOverrides=null;this.transportServiceLevel=null;
         this.calculateRoute(this.canvasProvider(),this.atlasProvider(this.scene));
         this.draw();await this.render(true);
       },
-      onSave:async (edited,{operation}={})=>{
+      onSave:async (edited,{operation,serviceLevel}={})=>{
         if(this.travelMethod!==id||this.transportArrangement!==arrangement)
           throw Error("The selected travel method changed. Reopen its settings.");
         this.transportJourneyOverrides=transportationMethodOverrideDelta(original,edited);
+        this.transportServiceLevel=serviceLevel??null;
         if(operation)this.transportOperation=operation;
         this.transportHireTerms=null;this.transportHireDenomination=null;
         this.calculateRoute(this.canvasProvider(),this.atlasProvider(this.scene));
@@ -1295,7 +1707,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       ownsSelected?"owned":offer?"hire":"owned";
     if(preferred==="hire"&&!offer||preferred==="owned"&&method!=="walking"&&!ownsSelected)return;
     this.travelMethod=method;
-    this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedAssignments={};
+    this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedServiceLevels={};this.mixedAssignments={};
     this.mixedRiderCounts={};this.mixedUnits={};
     if(method!=="walking"){
       this.convoyEnabled=false;this.convoyCargoQuantities={};this.convoyPace=null;
@@ -1304,7 +1716,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.transportOperation="normal";
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
-    this.transportJourneyOverrides=null;
+    this.transportJourneyOverrides=null;this.transportServiceLevel=null;
     this.travelNotice="";
     this.calculateRoute(view,this.atlasProvider(this.scene));
     this.draw();
@@ -1333,7 +1745,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       void this.render(true);return;
     }
     if(next.length===1){
-      this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedAssignments={};
+      this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedServiceLevels={};this.mixedAssignments={};
     this.mixedRiderCounts={};this.mixedUnits={};
       this.convoyEnabled=false;this.convoyCargoQuantities={};this.convoyPace=null;
       const [singleArrangement,singleMethod]=next[0].split("|",2);
@@ -1375,13 +1787,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.mixedKeys=next;
     this.mixedMethodOverrides=Object.fromEntries(
       Object.entries(this.mixedMethodOverrides).filter(([key])=>next.includes(key)));
+    this.mixedServiceLevels=Object.fromEntries(
+      Object.entries(this.mixedServiceLevels).filter(([key])=>next.includes(key)));
     this.mixedRiderCounts=Object.fromEntries(
       Object.entries(this.mixedRiderCounts).filter(([key])=>next.includes(key)));
     this.mixedUnits=Object.fromEntries(Object.entries(this.mixedUnits)
       .filter(([key])=>next.includes(key)));
     this.convoyEnabled=false;this.convoyCargoQuantities={};
     this.convoyPace=null;
-    this.travelMethod="walking";this.transportArrangement="owned";
+    this.travelMethod="walking";this.transportArrangement="owned";this.transportServiceLevel=null;
     this.travelNotice="";
     const view=this.canvasProvider();
     if(!current&&view?.ready&&view.scene?.id===this.scene.id)
@@ -1406,7 +1820,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const movingHours=navigationHours(this.result.distance,speed);
     const regularHours=resolveNavigationTravelRules({settings:game.settings,
       systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8;
-    const quote=quoteTransportationService(method,{
+    const quote=(arrangement==="hire"?this.planLandHiredService(method,party)?.quote:null)??quoteTransportationService(method,{
       arrangement,operation:this.plannedTravelOperation(method),
       movingHours,distanceMi,travelers:party.travelerCount,
       livestockCount,regularHours,
@@ -1419,6 +1833,19 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   assessTravelMethod(){
+    const prior=this.recoveryRecord?.legs?.at(-1);
+    // Staffed ordinary land continuations retain the approved road sequence
+    // and geometry, just like a checkpoint-bound voyage.
+    if(isUnfinishedJourneyLeg(this.recoveryRecord)&&!prior.transport&&prior.approvedPath&&
+        (prior.travelMethod?.ownedApproval||prior.convoy?.methods?.some(m=>m.ownedApproval))){
+      try{
+        const route=assessApprovedJourneyRecovery({approvedPath:prior.approvedPath,
+          route:this.result,anchor:this.recoveryRecord.lastConfirmedAnchor,
+          tokenPosition:this.result?.start,gridSize:this.scene?.grid?.size});
+        if(!route.safe)throw Error("The saved owned Journey cannot resume against its approved route ("+
+          route.reason+"). Review the confirmed position and route before continuing.");
+      }catch(error){return {compatible:false,guided:false,reason:error.message??String(error)};}
+    }
     // Continuation mounts may be undecided in the UI, but never at approval.
     // Gate even Walking: no method may bypass the saved cohort review.
     if(!this.travelSession&&this.recoveryRecord?.legs?.at(-1)?.livestock&&
@@ -1454,8 +1881,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     if(this.travelMethod==="walking"){
       if(this.recoveryRecord?.legs?.at(-1)?.convoy&&
-          isUnfinishedJourneyLeg(this.recoveryRecord))
+          isUnfinishedJourneyLeg(this.recoveryRecord)){
+        if(this.recoveryRecord.legs.at(-1).convoy.methods?.some(m=>m.ownedApproval)){
+          try{
+            const party=this.partyTravelSelection(this.transportAvailability().all);
+            if(!party)throw Error("The approved owned vehicle requires its original Group explorer.");
+            priorJourneySelection(this.recoveryRecord,party.roster);
+          }catch(error){return {compatible:false,guided:false,reason:error.message??String(error)};}
+        }
         return {compatible:true,guided:true,reason:null};
+      }
       if(!this.mixedKeys.length&&!this.convoyEnabled)
         return {compatible:true,guided:true,reason:null};
       try{
@@ -1516,6 +1951,19 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             " unit(s) required, "+(supply.availableUnits??"unverified")+
             " available at the departure checkpoint."};
       }
+      if(approvedLand?.ownedApproval){
+        try{
+          if(!party)throw Error("The approved owned vehicle traveler manifest is unavailable.");
+          priorJourneySelection(this.recoveryRecord,party.roster);
+        }catch(error){return {...result,guided:false,reason:error.message??String(error)};}
+      }
+      const ordinaryOwned=this.ordinaryOwnedLeg();
+      if(ordinaryOwned?.operatedUnits!==undefined){
+        if(!ordinaryOwned.ownedDraft||ordinaryOwned.errors.length)
+          return {...result,guided:false,reason:ordinaryOwned.errors.join(" ")||
+            "Review the selected operating units."};
+        return result;
+      }
       if(!approvedLand&&this.transportArrangement==="owned"&&method&&
           game.system?.id==="dnd5e"&&group?.type==="group"){
         if(!groupMethodCapacityStatus(party.previewRoster,method).sufficient)
@@ -1524,9 +1972,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       }
       if(!approvedLand&&method?.kind==="vehicle"&&method.surface==="land"){
         try{
-          if(party)this.planLandVehicleBoarding(
-            this.effectiveTransportMethod(method,availability),
-            this.transportArrangement,party);
+          const effective=this.effectiveTransportMethod(method,availability);
+          if(this.transportArrangement==="hire"&&this.transportServiceLevel)this.planLandHiredService(effective,party);
+          if(party)this.planLandVehicleBoarding(effective,this.transportArrangement,party);
         }catch(error){return {...result,guided:false,
           reason:error.message??String(error)};}
       }
@@ -1603,6 +2051,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   draw() {
+    // The route is a GM-only overlay, separate from the player map projection.
+    if(!globalThis.game?.user?.isGM){
+      if(this.overlay&&!this.overlay.destroyed)this.overlay.clear();
+      return;
+    }
     const view = this.canvasProvider();
     if (!this.scene || view?.scene?.id !== this.scene.id || !view.ready ||
         !globalThis.PIXI?.Graphics || !view.primary?.addChild) return;
@@ -1782,8 +2235,24 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           partial&&progress>=99.999)
         return reject("The saved interval duration does not match the approved leg progress.");
       const final=progress>=99.999;
+      const ordinaryArrival=final&&!leg.transport;
       let arrivedCheckpoint=null;
-      if(final){
+      if(ordinaryArrival){
+        // An ordinary leg has no checkpoint transfer decision. Only the
+        // exact saved final coordinate target may close the Journey.
+        const target=saved.routeTargets?nextJourneyTarget(saved.routeTargets):null;
+        const marker=target?.checkpointId!=null?
+          atlas.checkpoints?.find(cp=>cp.id===target.checkpointId):null;
+        const node=marker?atlas.nodes?.find(n=>n.id===marker.nodeId):null;
+        if(!target||(target.checkpointId!=null&&
+            (!node||!Number.isFinite(node.x)||!Number.isFinite(node.y)||
+              Math.hypot(node.x-target.point.x,node.y-target.point.y)>.01))||
+            saved.routeTargets.nextTargetIndex!==saved.routeTargets.targets.length-1||
+            Math.hypot(target.point.x-leg.destination.x,target.point.y-leg.destination.y)>.01||
+            Math.hypot(saved.destination.x-leg.destination.x,saved.destination.y-leg.destination.y)>.01||
+            Math.hypot(position.x-leg.destination.x,position.y-leg.destination.y)>1)
+          return reject("The final native interval does not match the approved ordinary destination and saved target.");
+      }else if(final){
         const checkpoint=atlas.checkpoints?.find(cp=>cp.id===leg.transport.arrivalCheckpointId);
         const node=atlas.nodes?.find(n=>n.id===checkpoint?.nodeId);
         const target=saved.routeTargets?nextJourneyTarget(saved.routeTargets):null;
@@ -1808,10 +2277,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       next.pendingNativeMove=null;
       const confirmedAnchor=captureJourneyAnchor({point:position,atlas,gridSize:scene.grid.size,
         levelId:anchor.levelId,elevation:anchor.elevation});
+      // The pre-clock candidate is read-only. Stamp arrival only when
+      // the actual clock already agrees with the reconciled interval.
+      const arrivalStamp=ordinaryArrival&&result.worldClockAction!=="advance"?
+        journeyWorldStamp(game.time):null;
       const record=checkpointJourneyRecord(next,{schedule,progress,
-        status:final?"paused":"interrupted",
+        status:ordinaryArrival?"completed":final?"paused":"interrupted",
         worldTravelSeconds:leg.worldTravelSeconds+seconds,
         worldRestSeconds:leg.worldRestSeconds,confirmedAnchor,arrivedCheckpoint,
+        arrivedWorldTime:arrivalStamp?.seconds??null,
+        arrivedTimeLabel:arrivalStamp?.label??null,
         checkpointTolerancePixels:scene.grid.size*.75});
       if(final&&record.routeTargets.nextTargetIndex!==saved.routeTargets.nextTargetIndex+1)
         return reject("The final checkpoint did not advance the saved target exactly once.");
@@ -1891,6 +2366,20 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       "Unexecuted native checkpoint reconciled without movement or time writes",
       {journalId:journal.id,operationId:saved.pendingNativeMove.operationId,
         checkpointIndex:saved.pendingNativeMove.checkpointIndex});
+    if(next.status==="completed"){
+      // The final ordinary target is durable; it is no longer a recoverable
+      // route. Reuse the completed Journey view, never start a new leg.
+      this.sourceMode="party";
+      this.clear();
+      this.completedRecord=next;
+      this.completedRoute=true;
+      this.journeyJournal=journal;
+      this.travelNotice="Arrived at the verified saved destination.";
+      this.announceCommittedJourney({journal,previous:saved,committed:next,
+        type:"destination.reached",subject:"your destination"});
+      await this.render(true);
+      return true;
+    }
     return this.recoverSavedJourney({automatic});
   }
 
@@ -1953,7 +2442,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.livestockDecisions=Object.fromEntries(approved.resources.map(m=>
         [m.actorId,m.aboard]));
     }
-    if(recent.participation){
+    if(recent.participation||(arrival?.ownedApproval||recent.travelMethod?.ownedApproval||
+        recent.convoy?.methods?.some(m=>m.ownedApproval))&&isUnfinishedJourneyLeg(saved)){
       // Restore the approved cohort on reload before computing passenger fares
       // or eligibility. This updates only an in-memory draft, never the Group.
       const actor=token?.actor;
@@ -2492,7 +2982,29 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   resolveTravelRules(travel,approvedMethod=null,approvedOperation=null){
     const rules=resolveNavigationTravelRules({settings:game.settings,
       systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
+    const savedConvoy=isUnfinishedJourneyLeg(this.recoveryRecord)?this.recoveryRecord?.legs.at(-1)?.convoy:null;
+    if(travel?.methodId==="walking"&&savedConvoy?.sharedDailyHours!==undefined)
+      return {...rules,dailyHours:savedConvoy.sharedDailyHours,overnightHours:24-savedConvoy.sharedDailyHours};
     if(!travel?.methodId||travel.methodId==="walking")return rules;
+    const saved=isUnfinishedJourneyLeg(this.recoveryRecord)?this.recoveryRecord?.legs.at(-1)?.travelMethod:null;
+    if(saved?.ownedApproval&&saved.id===travel.methodId){
+      const approved=validateConfirmedOwnedVehicleApproval(saved.ownedApproval);
+      return {...rules,profile:"transport-service",label:"Transport service",
+        dailyHours:approved.operation==="continuous"?null:approved.dailyHours,
+        overnightHours:approved.overnightHours,forcedMarch:"custom"};
+    }
+    if(!approvedMethod&&approvedOperation===null&&travel.methodId===this.travelMethod){
+      const draft=this.ordinaryOwnedLeg()?.ownedDraft;
+      if(draft)return {...rules,profile:"transport-service",label:"Transport service",
+        dailyHours:draft.operation==="continuous"?null:draft.dailyHours,
+        overnightHours:draft.overnightHours,forcedMarch:"custom"};
+    }
+    if(saved?.serviceApproval&&saved.id===travel.methodId){
+      const approved=validateHiredServiceApproval(saved.serviceApproval);
+      return {...rules,profile:"transport-service",label:"Transport service",
+        dailyHours:approved.operation==="continuous"?null:approved.dailyHours,
+        overnightHours:approved.overnightHours,forcedMarch:"custom"};
+    }
     const world=approvedMethod??availableNavigationTravelMethods(game.settings,game.system?.id)
       .find(method=>method.id===travel.methodId);
     // No approved snapshot was passed: use this trip's actual local method,
@@ -2507,6 +3019,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const normalHours=rules.dailyHours??8;
     const storedOperation=this.transportOperation??"normal";
     let operation=approvedOperation??(
+      !isUnfinishedJourneyLeg(this.recoveryRecord)&&this.transportArrangement==="hire"&&
+        travel.methodId===this.travelMethod&&this.transportServiceLevel?
+          resolveHiredServiceLevel(preset,this.transportServiceLevel,normalHours).operation:
       approvedMethod&&isUnfinishedJourneyLeg(this.recoveryRecord)?
         storedOperation:draftTransportationOperation(preset,storedOperation));
     let selected;
@@ -2530,10 +3045,32 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   /** Resolve the exact edited method and approved operation before travel.
    * In particular a hired land vehicle may gain continuous capability at the
    * departure Map Marker while its inherited World preset remains standard. */
-  resolveCurrentLegRules(travel,guidedOption=null,guidedLeg=null){
-    if(guidedLeg||!travel?.methodId||travel.methodId==="walking")
-      return this.resolveTravelRules(travel,guidedOption?.method,
+  resolveCurrentLegRules(travel,guidedOption=null,guidedLeg=null,approvedConvoy=null,approvedLandOwned=null){
+    const owned=guidedLeg?.transport?.ownedApproval??approvedLandOwned;
+    if(owned!==undefined&&owned!==null){
+      // The validated historical schedule owns both execution and continuation.
+      // Do not resolve it through mutable World vehicle operating capabilities.
+      const approved=validateConfirmedOwnedVehicleApproval(owned);
+      if(approved.methodId!==travel?.methodId||
+          guidedLeg&&approved.operation!==guidedLeg.transport.operation)
+        throw Error("The owned vehicle approval differs from this leg.");
+      const rules=resolveNavigationTravelRules({settings:game.settings,
+        systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
+      return {...rules,profile:"transport-service",label:"Transport service",
+        dailyHours:approved.operation==="continuous"?null:approved.dailyHours,
+        overnightHours:approved.overnightHours,forcedMarch:"custom"};
+    }
+    if(approvedConvoy?.sharedDailyHours!==undefined){
+      const rules=this.resolveTravelRules(travel);
+      return {...rules,dailyHours:approvedConvoy.sharedDailyHours,overnightHours:24-approvedConvoy.sharedDailyHours};
+    }
+    if(guidedLeg||!travel?.methodId||travel.methodId==="walking"){
+      const rules=this.resolveTravelRules(travel,guidedOption?.method,
         guidedLeg?.transport?.operation??null);
+      const approved=guidedLeg?.transport?.serviceApproval;
+      return approved?{...rules,dailyHours:approved.operation==="continuous"?null:approved.dailyHours,
+        overnightHours:approved.overnightHours}:rules;
+    }
     const availability=this.transportAvailability();
     const world=availability.methods.find(method=>method.id===travel.methodId);
     if(!world)throw Error("The selected transportation method is unavailable.");
@@ -2654,7 +3191,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     session.phase="rest-checkpointing";
     // A daily-limit decision is durable even when no new native movement
     // occurred after the most recent verified checkpoint.
-    await this.saveJourneyCheckpoint(session,"paused");
+    await this.saveJourneyCheckpoint(session,"paused",{
+      updatePage:!session.journeyRecord?.pendingNativeMove
+    });
     if(session.phase==="ending"||this.travelSession!==session)return false;
     session.phase="rest-choice";
     atlasDebug("journey","Daily travel limit reached",{
@@ -2768,11 +3307,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const partyAtStart=this.sourceMode==="party"&&!isUnfinishedJourneyLeg(this.recoveryRecord)?
       this.partyTravelSelection(availableNavigationTravelMethods(game.settings,game.system?.id)):null;
     if(nativeGroup&&!isUnfinishedJourneyLeg(this.recoveryRecord)&&
-        (!partyAtStart||partyAtStart.empty))
+        !partyAtStart)
       throw Error("Select at least one valid Group traveler before approving movement.");
-    const partySignature=partyAtStart?JSON.stringify({
-      members:partyAtStart.roster?.members,selectedIds:partyAtStart.selectedIds,
-      livestockDecisions:this.livestockDecisions}):null;
+    const selectionSignature=party=>JSON.stringify({members:party?.roster?.members,
+      selectedIds:party?.selectedIds,livestockDecisions:this.livestockDecisions});
+    const partySignature=partyAtStart?selectionSignature(partyAtStart):null;
+    const verifyParticipation=party=>{
+      if(partySignature!==null&&selectionSignature(party)!==partySignature)
+        throw Error("The Group roster or participation changed during confirmation. Review and approve again.");
+    };
     if(this.travelMethod!=="walking"&&this.sourceMode!=="party")
       throw Error("Guided mounted/sailing journeys require checkpoint transfers from the assigned party token.");
     const token=this.getPartyToken();
@@ -2794,8 +3337,25 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       this.calculateRoute(view,atlas);this.draw();void this.render(true);
       throw Error("The party moved since the preview. Select transportation on the refreshed route.");
     }
-    let guidedLeg=null,guidedOption=null;
-    let approvedLivestock=null;
+    // Preserve the accepted RC.1 active-GM guard before any approval, and
+    // recheck immediately before Journey creation.
+    const verifyWorldClock=()=>{
+      const enabled=readNavigationWorldClockSetting(game.settings);
+      if(enabled){
+        const activeGM=game.users?.activeGM;
+        if(activeGM?.id!==game.user?.id||!game.user?.isGM)
+          throw Error("Only Foundry's active GM can advance World time during an Atlas journey. "+
+            (activeGM?.name?"Current active GM: "+activeGM.name+". ":"")+
+            "Use the active GM session, or deliberately disable World-time advancement in Atlas World settings.");
+        if(typeof game.time?.advance!=="function")
+          throw Error("Foundry World time is unavailable for guided travel.");
+      }
+      return enabled;
+    };
+    verifyWorldClock();
+    let guidedLeg=null,guidedOption=null,reviewedCheckpointLeg=null;
+    let ownedRouteSignature=null;
+    let approvedLivestock=null,approvedLandService=null,approvedLandOwned=null;
     // Preserve the proven walking lifecycle. Other movement is permitted ONLY
     // to the next authored checkpoint, never across a guessed surface change.
     if(Array.isArray(atlas.roads)&&Array.isArray(atlas.nodes)&&
@@ -2811,7 +3371,12 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         if(this.sourceMode!=="party")
           throw Error("Checkpoint-assisted movement requires the assigned party token as Point A.");
         const plan=this.transportationTransitionPlan();
-        guidedLeg=prepareGuidedTransportLeg(this.result,plan?.legs[0]);
+        reviewedCheckpointLeg=plan?.legs[0];
+        if(reviewedCheckpointLeg?.operatedUnits!==undefined&&!reviewedCheckpointLeg.ownedDraft)
+          throw Error(reviewedCheckpointLeg.errors.join(" ")||"Review the selected operated units before approving movement.");
+        if(reviewedCheckpointLeg?.ownedDraft||reviewedCheckpointLeg?.ownedApproval)
+          ownedRouteSignature=JSON.stringify(this.result);
+        guidedLeg=prepareGuidedTransportLeg(this.result,reviewedCheckpointLeg,{draft:true});
         if(isRepeatedArrivalCheckpoint(this.recoveryRecord,
           plan?.legs[0]?.arrivalCheckpoint))
           throw Error("Already arrived at "+plan.legs[0].arrivalCheckpoint.name+
@@ -2821,6 +3386,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       }else if(projected.legs.some(leg=>leg.surface!=="land"))
         throw Error("Native guided movement for this water/air-only route needs a supported checkpoint leg.");
     }
+    const ordinaryOwned=!guidedLeg?this.ordinaryOwnedLeg():null;
+    if(nativeGroup&&partyAtStart?.empty&&
+        !(reviewedCheckpointLeg?.ownedDraft??ordinaryOwned?.ownedDraft)?.units.some(unit=>unit.namedCrew.length))
+      throw Error("Select at least one valid Group traveler before approving movement.");
     if(!guidedLeg&&this.travelMethod!=="walking"){
       const assessment=this.assessTravelMethod();
       if(!assessment.guided)
@@ -2840,37 +3409,162 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         throw Error("The hired land service is not offered at this checkpoint.");
       const effective=this.effectiveTransportMethod(method,availability);
       const selectedOperation=this.plannedTravelOperation(effective);
+      approvedLandService=resumingApprovedLand?(approvedLandMethod.serviceApproval??null):
+        this.planLandHiredService(effective,partyAtStart)?.approval??null;
+      const ownedDraft=ordinaryOwned?.ownedDraft??null;
+      const historicalOwned=approvedLandMethod?.ownedApproval??null;
+      const reviewedOwned=historicalOwned??ownedDraft;
+      const landRoute=this.result,landArrangement=this.transportArrangement;
+      const landRouteSignature=JSON.stringify(this.result);
       const landLivestock=resumingApprovedLand?null:
-        this.planLandVehicleBoarding(effective,this.transportArrangement,partyAtStart);
+        ordinaryOwned?.operatedUnits!==undefined?
+          ordinaryOwned.livestock?{manifest:ordinaryOwned.livestock,quote:ordinaryOwned.serviceQuote}:null:
+          this.planLandVehicleBoarding(effective,this.transportArrangement,partyAtStart);
       // Validate the current Map Marker and inferred schedule before GM approval.
-      this.resolveTravelRules({methodId:this.travelMethod,hoursPerDay:8},
+      const rules=this.resolveTravelRules({methodId:this.travelMethod,hoursPerDay:8},
         effective,selectedOperation);
+      const money=cp=>dndCurrencyBreakdown(cp,globalThis.CONFIG?.DND5E?.currencies).label;
+      // Legacy estimates remain reference-only. Reuse the existing fare
+      // calculator and never invent an owned fleet or a historical quote.
+      const referenceQuote=(method,party)=>{
+        if(resumingApprovedLand||reviewedOwned||approvedLandService||landLivestock)return null;
+        const {sceneUnit,travel}=this.resolveTravel();
+        const distanceMi=convertGroupSpeed(this.result.distance,sceneUnit,"mi");
+        if(!Number.isFinite(distanceMi)||!Number.isFinite(travel.speed)||travel.speed<=0)return null;
+        const movingHours=navigationHours(this.result.terrainAware?this.result.cost:this.result.distance,travel.speed);
+        const regularHours=resolveNavigationTravelRules({settings:game.settings,
+          systemId:game.system?.id,actorHoursPerDay:travel.hoursPerDay}).dailyHours??8;
+        const operation=this.plannedTravelOperation(method);
+        let ownedQuote=null;
+        if(this.transportArrangement==="owned"){
+          if(!party?.previewRoster)return null;
+          const capacity=groupMethodCapacityStatus(party.previewRoster,method);
+          if(!capacity.sufficient)return null;
+          ownedQuote=groupMethodFareEstimate(party.previewRoster,method,{hours:movingHours,distanceMi,
+            dayHours:rules.dailyHours??8});
+        }
+        return quoteTransportationService(method,{arrangement:this.transportArrangement,operation,
+          movingHours,distanceMi,travelers:party?.travelerCount??1,ownedQuote,regularHours,
+          hireTerms:this.transportHireTerms,livestockPercent:readLivestockFarePercent(game.settings)});
+      };
+      const legacyQuote=referenceQuote(effective,partyAtStart);
+      let ownedSummary=null;
+      if(reviewedOwned){
+        const namedCrew=reviewedOwned.units.flatMap(unit=>unit.namedCrew);
+        const crewIds=new Set(namedCrew.map(member=>member.actorId));
+        const people=historicalOwned?
+          structuredClone(this.recoveryRecord.legs.at(-1).participation?.people??[]):
+          (partyAtStart?.members??[]).map(member=>({
+            actorId:member.id,name:member.name,traveling:partyAtStart.selectedIds.includes(member.id)
+          }));
+        for(const member of namedCrew)if(!people.some(p=>p.actorId===member.actorId))
+          people.push({actorId:member.actorId,name:member.name,traveling:true});
+        const traveling=people.filter(p=>p.traveling);
+        const absent=people.filter(p=>!p.traveling).map(p=>p.name);
+        const speed=atlasDisplaySpeed(historicalOwned?
+          this.recoveryRecord.legs.at(-1).speedPerHour:
+          convertGroupSpeed(reviewedOwned.speedMph,"mph",this.scene.grid.units),
+          this.scene.grid.units,game.settings,game.system?.id);
+        const speedUnit=speed.unit==="mi/hour"?"mph":speed.unit==="km/hour"?"km/h":speed.unit;
+        const cost=historicalOwned?"Previously approved — no new fare":
+          dndCurrencyBreakdown(reviewedOwned.totalCp,globalThis.CONFIG?.DND5E?.currencies).label;
+        const manifest=historicalOwned?this.recoveryRecord.legs.at(-1).livestock:landLivestock?.manifest;
+        const mountDetails=describeJourneyMountFare(manifest,{arrangement:"owned",
+          approved:Boolean(historicalOwned),showFare:false});
+        const staying=manifest?.resources.filter(m=>m.quantity>m.aboard)
+          .map(m=>m.name+" ×"+(m.quantity-m.aboard))??[];
+        ownedSummary=renderNavigationTransportApproval({
+          routeContext:this.routeReviewContext(),
+          overview:describeOwnedApprovalOverview(traveling.length,reviewedOwned,manifest),
+          rows:[{method:method.name+" (party-owned)",travelerCount:traveling.length,travelers:traveling.map(p=>
+            p.name+(crewIds.has(p.actorId)?" (crew)":"")).join(", ")||"Assigned party explorer",
+            units:String(reviewedOwned.units.length),cost}],
+          metrics:[["Total travelers",String(traveling.length)],
+            ["Group travel speed",speed.value.toFixed(2)+" "+speedUnit],
+            [historicalOwned?"Originally approved moving time":"Estimated moving time",
+              formatNavigationDuration(reviewedOwned.movingHours,24)],
+            ["Estimated transportation cost",cost]],
+          fareRows:historicalOwned?[]:describeTransportationFareRows(reviewedOwned,{owned:true,livestock:manifest,
+            formatCoins:true,currencyConfig:globalThis.CONFIG?.DND5E?.currencies}),
+          notes:[absent.length?"Not traveling: "+absent.join(", "):null,
+            ...reviewedOwned.units.map(describeOwnedUnitStaffing),
+            "Passenger seats: "+reviewedOwned.passengerSeats+" / "+reviewedOwned.passengerCapacity+
+              " · Operating schedule: "+reviewedOwned.operation+" · "+reviewedOwned.dailyHours+"h/day",
+            historicalOwned?"Resuming previously approved travel. No new fare.":
+              "Fare components are before rounding; the total is rounded once.",
+            ownedDraft?.belowMinimum?"Below-minimum staffing: acknowledge the advisory before travel.":null,
+            mountDetails,manifest?"Animal accommodation: "+(manifest.capacityPerUnit===null?
+              "unlimited by default":manifest.capacityPerUnit+" spaces per vehicle"):null,
+            staying.length?"Staying behind: "+staying.join(", "):null,
+            "Foundry validates native movement and optional World-time advancement. Estimates only: "+
+              "no automatic boarding, currency deduction, Actor changes or native Group changes."]
+        });
+      }
+      if(!ownedSummary){
+        const prior=resumingApprovedLand?this.recoveryRecord.legs.at(-1):null;
+        const people=prior?.participation?.people??(partyAtStart?.members??[]).map(member=>({
+          name:member.name,traveling:partyAtStart.selectedIds.includes(member.id)
+        }));
+        const traveling=people.filter(p=>p.traveling),absent=people.filter(p=>!p.traveling);
+        const {travel}=this.resolveTravel();
+        const shown=atlasDisplaySpeed(travel.speed,this.scene.grid.units,game.settings,game.system?.id);
+        const unit=shown.unit==="mi/hour"?"mph":shown.unit==="km/hour"?"km/h":shown.unit;
+        const quote=prior?null:approvedLandService??landLivestock?.quote??legacyQuote;
+        const manifest=prior?.livestock??landLivestock?.manifest;
+        const cost=prior?"Previously approved — no new fare":
+          quote?money(quote.totalCp):"Not quoted";
+        const hours=navigationHours(this.result.terrainAware?this.result.cost:this.result.distance,travel.speed);
+        const mountDetails=manifest?describeJourneyMountFare(manifest,{method:effective,
+          arrangement:this.transportArrangement,worldPercent:readLivestockFarePercent(game.settings),
+          approved:Boolean(prior),showFare:!quote&&!prior}):null;
+        const staying=manifest?.resources.filter(m=>m.quantity>m.aboard)
+          .map(m=>m.name+" ×"+(m.quantity-m.aboard))??[];
+        ownedSummary=renderNavigationTransportApproval({
+          routeContext:this.routeReviewContext(),
+          rows:[{method:method.name+" ("+(this.transportArrangement==="hire"?"hired":"party-owned")+")",
+            travelerCount:traveling.length,
+            travelers:traveling.map(p=>p.name).join(", ")||"Assigned party explorer",
+            units:quote?.units??approvedLandService?.units??"—",cost}],
+          metrics:[["Total travelers",people.length?String(traveling.length):"Party explorer"],
+            ["Group travel speed",shown.value.toFixed(2)+" "+unit],
+            [prior?"Estimated remaining moving time":"Estimated moving time",formatNavigationDuration(hours,24)],
+            ["Estimated transportation cost",cost]],
+          fareRows:describeTransportationFareRows(quote,{owned:this.transportArrangement==="owned",crewMethod:effective,
+            formatCoins:true,currencyConfig:globalThis.CONFIG?.DND5E?.currencies}),
+          notes:[
+            "Operating schedule: "+selectedOperation+" · "+(rules.dailyHours??24)+"h/day",
+            approvedLandService?"Hired service: "+approvedLandService.serviceLevel+" · "+
+              approvedLandService.advertisedCrew+" advertised crew per unit":null,
+            !prior?describeJourneyCrewEstimate(quote):null,
+            absent.length?"Not traveling: "+absent.map(p=>p.name).join(", "):null,
+            mountDetails,manifest?"Animal accommodation: "+(manifest.capacityPerUnit===null?
+              "unlimited by default":manifest.capacityPerUnit+" spaces per vehicle"):null,
+            staying.length?"Staying behind: "+staying.join(", "):null,
+            quote?"Fare components are before rounding; the total is rounded once.":null,
+            prior?"Resuming previously approved travel. No new fare.":null,
+            "Foundry validates native movement and optional World-time advancement. Estimates only: "+
+              "no automatic boarding, currency deduction, Actor changes or native Group changes."
+          ]
+        });
+      }
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:resumingApprovedLand?"Resume approved land travel":"Confirm land travel"},
-        content:el("div","GM confirmation: "+(resumingApprovedLand?
-          "resume the approved journey":"follow the authored land route")+" using "+
-          method.name+" ("+(this.transportArrangement==="hire"?"hired":"party-owned")+"). "+
-          "Operating schedule: "+selectedOperation+". "+
-          "The party token will move using Foundry's native movement and optional "+
-          "World-time advancement. Costs are estimates; no automatic boarding, "+
-          "resource changes or currency deductions occur."+
-          (landLivestock?" Carrying "+
-            landLivestock.manifest.resources.reduce((n,m)=>n+m.aboard,0)+
-            " physical mounts in "+
-            (landLivestock.manifest.capacityPerUnit===null?
-              "unlimited default animal accommodation":
-              landLivestock.manifest.capacityPerUnit+" animal spaces per vehicle")+
-            "; estimated animal fare "+landLivestock.manifest.estimatedFareCp+
-            " CP (not deducted).":"")+" Continue?"),
-        rejectClose:false,modal:true
+        position:navigationApprovalPosition(),
+        content:ownedSummary,rejectClose:false,modal:true,
+        yes:{label:ownedDraft?.belowMinimum?"Acknowledge staffing and travel":resumingApprovedLand?"Resume leg":"Start leg"},
+        no:{label:"Back to plan"}
       });
-      if(!approval)return false;
+      if(reviewedOwned?approval!==true:!approval)return false;
       const liveAvailability=this.transportAvailability();
       const liveWorld=liveAvailability.methods.find(m=>m.id===this.travelMethod);
       const liveMethod=liveWorld&&this.effectiveTransportMethod(liveWorld,liveAvailability);
-      if(this.travelSession||this.pendingTransfer||this.scene?.id!==view.scene?.id||
-          this.atlasProvider(this.scene).revision!==this.routeRevision||
-          this.getPartyToken()?.id!==token.id||!liveMethod||
+      if(!game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update")||
+          !token.canUserModify?.(game.user,"update")||!this.canvasProvider()?.ready||
+          this.canvasProvider()?.scene?.id!==view.scene?.id||
+          this.travelSession||this.journalStarting||this.suspendedNativeSession||this.pendingTransfer||
+          this.scene?.id!==view.scene?.id||this.atlasProvider(this.scene).revision!==this.routeRevision||
+          this.getPartyToken()?.id!==token.id||!liveMethod||this.result!==landRoute||
+          this.travelMethod!==method.id||this.transportArrangement!==landArrangement||
           this.plannedTravelOperation(liveMethod)!==selectedOperation)
         throw Error("The Scene, token or operating schedule changed during confirmation.");
       const current=this.atlasPoint(view,atlas,
@@ -2880,13 +3574,30 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         throw Error("The party token moved during confirmation. Refresh its location.");
       if(!this.assessTravelMethod().guided)
         throw Error("The selected land transportation is no longer eligible.");
+      const afterOwned=this.ordinaryOwnedLeg();
+      if(JSON.stringify(this.result)!==landRouteSignature)
+        throw Error("The land route changed during confirmation. Review and approve again.");
+      const liveParty=this.partyTravelSelection(liveAvailability.all);
+      verifyParticipation(liveParty);
+      if(JSON.stringify(referenceQuote(liveMethod,liveParty))!==JSON.stringify(legacyQuote))
+        throw Error("The land transportation terms changed during confirmation. Review and approve again.");
+      if(reviewedOwned){
+        if(JSON.stringify(historicalOwned?
+              this.recoveryRecord?.legs.at(-1)?.travelMethod?.ownedApproval:afterOwned?.ownedDraft)!==JSON.stringify(reviewedOwned))
+          throw Error("The operated units, staffing, route or fare changed during confirmation. Review and approve again.");
+        approvedLandOwned=validateConfirmedOwnedVehicleApproval(historicalOwned??{
+          ...afterOwned.ownedDraft,belowMinimumAcknowledged:afterOwned.ownedDraft.belowMinimum});
+      }
       if(landLivestock){
-        const verified=this.planLandVehicleBoarding(liveMethod,
-          this.transportArrangement,partyAtStart);
+        const verified=ordinaryOwned?.operatedUnits!==undefined?
+          afterOwned?.livestock?{manifest:afterOwned.livestock,quote:afterOwned.serviceQuote}:null:
+          this.planLandVehicleBoarding(liveMethod,this.transportArrangement,partyAtStart);
         if(JSON.stringify(verified)!==JSON.stringify(landLivestock))
           throw Error("Land vehicle animal boarding, availability or fare changed during approval.");
         approvedLivestock=verified.manifest;
       }
+      if(!resumingApprovedLand&&JSON.stringify(this.planLandHiredService(liveMethod,partyAtStart)?.approval??null)!==
+          JSON.stringify(approvedLandService))throw Error("The selected hired service quote changed during confirmation.");
       if(hireSnapshot){
         const updated=this.transportAvailability();
         const revised=updated.methods.find(item=>item.id===this.travelMethod);
@@ -2900,6 +3611,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     // stock/party/route revalidated after confirmation and before Journal creation.
     const previousConvoy=isUnfinishedJourneyLeg(this.recoveryRecord)?
       this.recoveryRecord.legs.at(-1)?.convoy:null;
+    if(!guidedLeg&&previousConvoy?.methods?.some(m=>m.ownedApproval)){
+      const assessment=this.assessTravelMethod();
+      if(!assessment.guided)throw Error(assessment.reason??"Review the approved owned convoy.");
+    }
     let approvedConvoy=previousConvoy?
       previousConvoy.schemaVersion===3?validateAggregateLandConvoy(previousConvoy):
         previousConvoy.schemaVersion===2?validateMixedLandConvoy(previousConvoy):
@@ -2930,18 +3645,27 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "use "+shown.value.toFixed(2)+" "+speedUnit+
           ". You confirm all walkers can keep up; Actor movement speeds and "+
           "exhaustion are not changed automatically.":"";
+      const fare=walkingCargoFareBreakdown(proposed.hires,globalThis.CONFIG?.DND5E?.currencies);
+      const names=new Map((partyAtStart?.members??[]).map(p=>[p.id,p.name]));
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:"Confirm mixed walking and cargo travel"},
-        content:el("div","GM confirmation: all "+proposed.travelers.length+
-          " Group travelers will walk. Hire "+proposed.hires.map(h=>
-            h.units+" cargo-only "+h.methodName).join(", ")+
-          " at a shared pace of "+shown.value.toFixed(2)+" "+speedUnit+
-          " ("+proposed.movingHours.toFixed(2)+
-          " moving hours; estimated "+proposed.totalCp+
-          " CP)."+walkingException+
-          " No passengers board the cargo, and Atlas makes no booking, "+
-          "currency deduction, Actor change or automatic hire payment. Continue?"),
-        rejectClose:false,modal:true
+        position:navigationApprovalPosition(),
+        content:renderNavigationTransportApproval({
+          routeContext:this.routeReviewContext(),
+          rows:[{method:"Walking",travelerCount:proposed.travelers.length,
+            travelers:proposed.travelers.map(p=>names.get(p.actorId)??p.actorId).join(", "),
+            units:"—",cost:"—"},...proposed.hires.map(h=>({
+              method:h.methodName+" (hired)",travelers:"Cargo only",units:h.units,
+              cost:fare.rows.find(row=>row.key===h.methodId).label
+            }))],
+          metrics:[["Total travelers",String(proposed.travelers.length)],
+            ["Group travel speed",shown.value.toFixed(2)+" "+speedUnit],
+            ["Estimated moving time",formatNavigationDuration(proposed.movingHours,24)],
+            ["Estimated transportation cost",fare.total.label]],
+          notes:["Operating schedule: "+(this.resolveTravelRules(this.resolveTravel({excludeConvoy:true}).travel).dailyHours??24)+"h/day shared walking pace",
+            walkingException,"Each transportation method is rounded independently, then summed.",
+            "No passengers board the cargo, and Atlas makes no booking, currency deduction, Actor change or automatic hire payment."]
+        }),rejectClose:false,modal:true,yes:{label:"Start leg"},no:{label:"Back to plan"}
       });
       if(!approval)return false;
       if(this.travelSession||this.journalStarting||this.pendingTransfer||
@@ -2974,6 +3698,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "No travel was committed; review the authored roads.");
     }
     let travel=this.resolveTravel().travel;
+    if(approvedLandOwned)travel={...travel,methodId:approvedLandOwned.methodId,
+      speed:approvedLandMethod?this.recoveryRecord.legs.at(-1).speedPerHour:
+        convertGroupSpeed(approvedLandOwned.speedMph,"mph",this.scene.grid.units),
+      source:"group-method"};
     if(approvedConvoy)travel={...travel,speed:approvedConvoy.speedPerHour,
       methodId:"walking",methodLabel:approvedConvoy.schemaVersion===2?
         "Mixed Group transportation":"Walking with hired cargo",
@@ -2998,43 +3726,59 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           "checkpoint-service":"group-transport",hoursPerDay:
             resolveNavigationTravelRules({settings:game.settings,
               systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8};
-      const expectedLivestock=this.transportationTransitionPlan()?.legs[0]?.livestock??null;
+      const expectedLivestock=reviewedCheckpointLeg?.livestock??null;
+      const ownedDraft=reviewedCheckpointLeg?.ownedDraft??null;
+      const approvedOwned=info.ownedApproval??null;
+      const ownedService=approvedOwned??ownedDraft;
+      const namedCrew=ownedService?.units.flatMap(unit=>unit.namedCrew)??[];
+      const crewIds=new Set(namedCrew.map(member=>member.actorId));
       const people=partyAtStart?.members?.map(member=>({
-        name:member.name,traveling:partyAtStart.selectedIds.includes(member.id)
-      }))??this.recoveryRecord?.legs?.at(-1)?.participation?.people??[];
-      const traveling=people.filter(member=>member.traveling).map(member=>member.name);
+        actorId:member.id,name:member.name,traveling:partyAtStart.selectedIds.includes(member.id)
+      }))??structuredClone(this.recoveryRecord?.legs?.at(-1)?.participation?.people??[]);
+      if(ownedDraft)for(const member of namedCrew){
+        if(!people.some(person=>person.actorId===member.actorId))
+          people.push({actorId:member.actorId,name:member.name,traveling:true});
+      }
+      const traveling=people.filter(member=>member.traveling).map(member=>
+        member.name+(crewIds.has(member.actorId)?" (crew)":""));
       const absent=people.filter(member=>!member.traveling).map(member=>member.name);
       const travelerSeats=partyAtStart?.travelerCount??null;
-      const neededUnits=expectedLivestock?.units??(
+      const approvedService=info.serviceApproval;
+      const continuing=isUnfinishedJourneyLeg(this.recoveryRecord);
+      const displayLivestock=continuing?
+        this.recoveryRecord.legs.at(-1).livestock??expectedLivestock:expectedLivestock;
+      const quote=continuing?null:ownedDraft??reviewedCheckpointLeg?.serviceQuote??approvedService;
+      const neededUnits=ownedService?.units.length??approvedService?.units??quote?.units??displayLivestock?.units??(
         info.arrangement==="hire"&&travelerSeats!==null?
           assessHiredTransportAvailability(option.method,{travelers:travelerSeats}).requiredUnits:null);
-      const quotedCost=Number.isFinite(info.estimatedFareCp)?
+      const quotedCost=continuing?"Previously approved — no new fare":Number.isFinite(info.estimatedFareCp)?
         dndCurrencyBreakdown(info.estimatedFareCp,globalThis.CONFIG?.DND5E?.currencies).label:
         "Not quoted";
       const displayedSpeed=atlasDisplaySpeed(travel.speed,this.scene.grid.units,
         game.settings,game.system?.id);
       const speedUnits=displayedSpeed.unit==="mi/hour"?"mph":
         displayedSpeed.unit==="km/hour"?"km/h":displayedSpeed.unit;
-      const stayingMounts=expectedLivestock?.resources
+      const stayingMounts=displayLivestock?.resources
         .filter(resource=>resource.quantity>resource.aboard)
         .map(resource=>resource.name+": "+(resource.quantity-resource.aboard)+" staying")??[];
-      const mountFare=expectedLivestock?.estimatedFareCp??0;
-      const aboardMounts=expectedLivestock?.resources.reduce((n,m)=>n+m.aboard,0)??0;
-      const approvalMoney=cp=>dndCurrencyBreakdown(cp,
-        globalThis.CONFIG?.DND5E?.currencies).label;
-      const mountDetails=aboardMounts?describeJourneyMountFare(expectedLivestock,{
+      const mountFare=displayLivestock?.estimatedFareCp??0;
+      const mountDetails=describeJourneyMountFare(displayLivestock,{
         method:option.method,arrangement:info.arrangement,
-        worldPercent:readLivestockFarePercent(game.settings),
-        formatMoney:approvalMoney,approved:isUnfinishedJourneyLeg(this.recoveryRecord)}):null;
+        worldPercent:readLivestockFarePercent(game.settings),approved:continuing,
+        showFare:false});
       const approvedSummary=renderNavigationTransportApproval({
+        routeContext:this.routeReviewContext(guidedLeg),
         destination:"Current leg to "+guidedLeg.checkpoint.name,
-        fareRows:mountDetails&&Number.isFinite(info.estimatedFareCp)?[
-          ["Transport excluding mounts",approvalMoney(Math.max(0,
-            Math.round(info.estimatedFareCp)-Math.round(mountFare)))],
-          ["Physical mount boarding",approvalMoney(Math.round(mountFare))]
-        ]:[],
+        overview:describeOwnedApprovalOverview(traveling.length,ownedService,displayLivestock),
+        fareRows:quote?describeTransportationFareRows(quote,{owned:info.arrangement==="owned",livestock:displayLivestock,crewMethod:option.method,
+          formatCoins:true,currencyConfig:globalThis.CONFIG?.DND5E?.currencies}):
+          !continuing&&mountDetails&&Number.isFinite(info.estimatedFareCp)?[
+            ["Transport excluding mounts",formatExactTransportationFare(Math.max(0,info.estimatedFareCp-mountFare),globalThis.CONFIG?.DND5E?.currencies)],
+            ["Physical mount boarding",formatExactTransportationFare(mountFare,globalThis.CONFIG?.DND5E?.currencies)]
+          ]:[],
         rows:[{
           method:info.methodName+" ("+info.arrangement+")",
+          travelerCount:traveling.length,
           travelers:traveling.join(", ")||"Assigned party explorer",
           units:neededUnits===null?"—":String(neededUnits),
           cost:quotedCost
@@ -3042,11 +3786,23 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         metrics:[
           ["Total travelers",people.length?String(traveling.length):"Party explorer"],
           ["Group travel speed",displayedSpeed.value.toFixed(2)+" "+speedUnits],
-          ["Estimated moving time",formatNavigationDuration(hours,24)],
+          [continuing?"Estimated remaining moving time":"Estimated moving time",formatNavigationDuration(hours,24)],
           ["Estimated transportation cost",quotedCost]
         ],
         notes:[
           absent.length?"Not traveling: "+absent.join(", "):null,
+          approvedService?"Hired service: "+approvedService.serviceLevel+" · "+approvedService.advertisedCrew+
+            " advertised crew per unit · "+approvedService.dailyHours+"h/day"+(guidedLeg.transport.continuation?
+              " (previously approved; no new fare)":""):null,
+          ...(!ownedService&&!continuing?[describeJourneyCrewEstimate(quote)]:[]),
+          ...(ownedService?ownedService.units.map(describeOwnedUnitStaffing):[]),
+          ownedService?"Passenger seats: "+ownedService.passengerSeats+" / "+ownedService.passengerCapacity:null,
+          "Operating schedule: "+(info.operation??"normal")+" · "+
+            (ownedService?.dailyHours??approvedService?.dailyHours??reviewedCheckpointLeg?.dailyHours??
+              this.resolveCurrentLegRules(travel,option,guidedLeg).dailyHours??24)+"h/day"+
+            (continuing?" (previously approved)":""),
+          quote?"Fare components are before rounding; the total is rounded once.":null,
+          ownedDraft?.belowMinimum?"Below-minimum staffing: acknowledge the advisory to approve this leg.":null,
           mountDetails,
           stayingMounts.length?"Staying behind: "+stayingMounts.join(" · "):null,
           isUnfinishedJourneyLeg(this.recoveryRecord)?
@@ -3058,10 +3814,16 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       });
       const approval=await foundry.applications.api.DialogV2.confirm({
         window:{title:"Confirm travel to "+guidedLeg.checkpoint.name},
-        content:approvedSummary,rejectClose:false,modal:true
+        position:navigationApprovalPosition(),
+        content:approvedSummary,rejectClose:false,modal:true,
+        yes:{label:ownedDraft?.belowMinimum?"Acknowledge staffing and travel":continuing?"Resume leg":"Start leg"},
+        no:{label:"Back to plan"}
       });
-      if(!approval)return false;
-      if(this.travelSession||this.pendingTransfer||this.scene?.id!==view.scene?.id||
+      if(ownedService?approval!==true:!approval)return false;
+      if(!game.user?.isGM||!this.scene?.canUserModify?.(game.user,"update")||
+          !token.canUserModify?.(game.user,"update")||!this.canvasProvider()?.ready||
+          this.canvasProvider()?.scene?.id!==view.scene?.id||
+          this.travelSession||this.journalStarting||this.suspendedNativeSession||this.pendingTransfer||this.scene?.id!==view.scene?.id||
           this.atlasProvider(this.scene).revision!==this.routeRevision||
           this.getPartyToken()?.id!==token.id)
         throw Error("The Scene, token or route changed during confirmation.");
@@ -3073,8 +3835,21 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           after.selectedValue!==option?.value||
           (after.operation??"normal")!==(guidedLeg.transport.operation??"normal")||
           after.errors.length||
+          JSON.stringify(after.recovered?after.approvedService??null:
+            after.serviceQuote?.serviceLevel?validateHiredServiceApproval(after.serviceQuote):null)!==JSON.stringify(approvedService??null)||
           JSON.stringify(after.livestock??null)!==JSON.stringify(expectedLivestock))
         throw Error("The selected transportation, livestock or fare changed during confirmation. Review the updated checkpoint offer.");
+      if(ownedService){
+        if(JSON.stringify(this.result)!==ownedRouteSignature||
+            JSON.stringify(after.recovered?after.ownedApproval??null:after.ownedDraft??null)!==JSON.stringify(ownedService))
+          throw Error("The operated units, staffing, route or fare changed during confirmation. Review and approve again.");
+        if(ownedDraft){
+          const ownedApproval=validateConfirmedOwnedVehicleApproval({...after.ownedDraft,
+            belowMinimumAcknowledged:after.ownedDraft.belowMinimum});
+          guidedLeg=prepareGuidedTransportLeg(this.result,{...after,ownedApproval});
+        }
+        travel={...travel,methodLabel:info.methodName};
+      }
       approvedLivestock=after.livestock??null;
     }
     // Re-read the native roster after GM approval. No partial selection can
@@ -3089,10 +3864,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     const partyNow=this.sourceMode==="party"?this.partyTravelSelection(
       availableNavigationTravelMethods(game.settings,game.system?.id)):null;
-    if(partySignature!==null&&JSON.stringify({members:partyNow?.roster?.members,
-      selectedIds:partyNow?.selectedIds,
-      livestockDecisions:this.livestockDecisions})!==partySignature)
-      throw Error("The Group roster or participation changed during confirmation. Review and approve again.");
+    verifyParticipation(partyNow);
     if(nativeGroup&&!partyNow)
       throw Error("The Group roster cannot be validated. No movement was approved.");
     if(!unfinished&&!approvedLivestock&&
@@ -3107,15 +3879,25 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(approvedConvoy?.schemaVersion===2){
         const accompanying=new Set(approvedLivestock.resources.filter(m=>m.aboard>0)
           .map(m=>m.actorId));
+        const mountIds=new Set(groupLivestockResources(partyNow.roster).map(m=>m.actorId));
         if(approvedConvoy.methods.flatMap(m=>m.resourceIds??[])
-          .some(id=>!accompanying.has(id)))
+          .some(id=>mountIds.has(id)&&!accompanying.has(id)))
           throw Error("A left-behind mount cannot be assigned to a land convoy.");
       }
+    }
+    const ownedApproval=guidedLeg?.transport?.ownedApproval??approvedLandOwned;
+    if(unfinished&&(ownedApproval||approvedConvoy?.methods?.some(m=>m.ownedApproval))){
+      const saved=this.recoveryRecord?.legs.at(-1);
+      if(!partyNow||!saved?.participation)
+        throw Error("The approved owned vehicle traveler manifest is unavailable.");
+      priorJourneySelection(this.recoveryRecord,partyNow.roster);
     }
     const approvedParticipation=unfinished?
       this.recoveryRecord?.legs.at(-1)?.participation??null:
       nativeGroup&&partyNow?createJourneyParticipation(partyNow.roster,partyNow.selectedIds,{
         checkpointId:guidedLeg?.transport?.departureCheckpointId??null,
+        ...(ownedApproval?{ownedApproval}:{}),
+        convoy:approvedConvoy,
         methodKey:(guidedLeg?.transport?.arrangement??this.transportArrangement)+"|"+
           (guidedLeg?.transport?.methodId??this.travelMethod),
         assignments:approvedConvoy?.schemaVersion===2?
@@ -3149,8 +3931,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         methodId:travel.methodId??this.travelMethod,
         methodName:travel.methodLabel??this.travelMethod,
         arrangement:this.transportArrangement,operation:
-          this.plannedTravelOperation(this.effectiveTransportMethod(
-            this.transportAvailability().methods.find(m=>m.id===this.travelMethod)))}
+          approvedLandOwned?.operation??approvedLandService?.operation??this.plannedTravelOperation(this.effectiveTransportMethod(
+            this.transportAvailability().methods.find(m=>m.id===this.travelMethod))),
+        ...(approvedLandService?{serviceApproval:approvedLandService}:{}),
+        ...(approvedLandOwned?{ownedApproval:approvedLandOwned}:{})}
     };
     const playback=calculateGuidedPlayback({
       route,travel,paths,
@@ -3165,7 +3949,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     if(!chunks)throw Error("The approved route has no distinct native pixel movement.");
     const totalDistance=chunks.reduce((sum,chunk)=>sum+chunk.distance,0);
     const schedule=new GuidedTravelDayTracker({travelHours:playback.travelHours,
-      rules:this.resolveCurrentLegRules(travel,guidedOption,guidedLeg)});
+      rules:this.resolveCurrentLegRules(travel,guidedOption,guidedLeg,approvedConvoy,approvedLandOwned)});
     if(nativeContinuous&&(
       typeof token.pauseMovement!=="function"||
       typeof token.stopMovement!=="function"||
@@ -3184,13 +3968,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       arrivalCheckpointId:guidedLeg?.checkpoint?.id??null}):null;
     if(nativePlan&&Math.abs(nativePlan.totalDistance-totalDistance)>1e-3)
       throw Error("The native and approved route distances disagree.");
-    const advanceWorldTime=readNavigationWorldClockSetting(game.settings);
-    if(advanceWorldTime){
-      if(game.users?.activeGM?.id!==game.user?.id||!game.user?.isGM)
-        throw Error("Only Foundry's active GM can advance World time during an Atlas journey.");
-      if(typeof game.time?.advance!=="function")
-        throw Error("Foundry World time is unavailable for guided travel.");
-    }
+    const advanceWorldTime=verifyWorldClock();
     const session={token,sceneId:this.scene.id,gridSize:this.scene.grid.size,
       phase:"moving",resumeWaiter:null,restWaiter:null,schedule,
       playbackSecondsPerHour:playback.secondsPerHour,visualRestHold:null,
@@ -3620,14 +4398,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const selectedEnd=nextTarget?.point??this.end??this.recoveryRecord?.destination;
     // Never create another tiny leg back to the checkpoint already occupied.
     this.end=atDestination?null:(selectedEnd?{...selectedEnd}:null);
-    this.pendingTransfer=null;
+    this.pendingTransfer=null;this.checkpointOwnedDraft=null;this.mixedOwnedDrafts={};
     this.sourceMode="party";
     const previous=this.recoveryRecord?.legs?.at(-1)?.convoy;
     if(this.recoveryRecord){
       this.travelMethod="walking";this.transportArrangement="owned";
-      this.transportOperation="normal";this.transportJourneyOverrides=null;
+      this.transportOperation="normal";this.transportJourneyOverrides=null;this.transportServiceLevel=null;
       this.transportHireTerms=null;this.transportHireDenomination=null;
-      this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedAssignments={};this.mixedUnits={};
+      this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedServiceLevels={};this.mixedAssignments={};this.mixedUnits={};
       this.mixedRiderCounts={};this.convoyEnabled=false;this.convoyCargoQuantities={};
       this.convoyPace=null;
       // A new leg starts from the last approved cohort as an editable draft;
@@ -3691,7 +4469,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     if(duplicateArrival){
       this.end=null;
-      this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedAssignments={};this.mixedUnits={};
+      this.mixedKeys=[];this.mixedMethodOverrides={};this.mixedServiceLevels={};this.mixedAssignments={};this.mixedUnits={};
       this.calculateRoute(view,atlas);
     }
     this.travelNotice=this.end?
@@ -3882,14 +4660,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     this.journeyTimeUI=null;
     this.transportHireTerms=null;
     this.transportHireDenomination=null;
-    this.transportJourneyOverrides=null;
-    this.transferLegOperations={};
+    this.transportJourneyOverrides=null;this.transportServiceLevel=null;
+    this.transferLegOperations={};this.checkpointOwnedDraft=null;this.mixedOwnedDrafts={};
     this.partySelectionMode="all";this.partySelectedIds=[];
     this.convoyEnabled=false;
     this.convoyCargoQuantities={};
     this.convoyPace=null;
     this.mixedKeys=[];
-    this.mixedMethodOverrides={};
+    this.mixedMethodOverrides={};this.mixedServiceLevels={};
     this.mixedAssignments={};
     this.mixedRiderCounts={};
     this.mixedUnits={};
@@ -4120,6 +4898,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(!await this.recoverSavedJourneyWithNativeReview({automatic:true}))
         throw Error("The saved Journey could not be restored after the canvas rebuild.");
       this.autoResumePending=null;
+      if(this.completedRoute){
+        this.canvasRecoveryNotice=null;
+        return true;
+      }
       // A native move may have durably reached an authored port immediately
       // before the canvas was rebuilt. Restoring this checkpoint decision is
       // automatic, but the NEXT transport leg has not been approved. Do not
@@ -4317,6 +5099,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         Number.isFinite(savedLeg.speedPerHour)&&savedLeg.speedPerHour>0)
       return {sceneUnit,travel:{...methodTravel,speed:savedLeg.speedPerHour,
         source:"recovered-method"}};
+    const ownedDraft=this.ordinaryOwnedLeg()?.ownedDraft;
+    if(ownedDraft){
+      const speed=convertGroupSpeed(ownedDraft.speedMph,"mph",sceneUnit);
+      return {sceneUnit,travel:{...methodTravel,speed,speedMph:ownedDraft.speedMph,source:"group-method"}};
+    }
     if(this.travelMethod!=="walking"&&(this.transportArrangement==="hire"||
         this.transportJourneyOverrides?.speedMph!==undefined)){
       try{
@@ -4382,6 +5169,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         body.append(renderCheckpointArrivalPrompt({
           checkpointName:checkpoint.name,atDestination}));
       }
+      const context=this.approvedRouteContext(this.recoveryRecord);
+      if(context)body.append(renderNavigationRouteContext(context,{nextLabel:"Current stop"}));
       if(game.user?.isGM&&this.recoveryRecord?.routeTargets)
         body.append(renderJourneyTargets(this.recoveryRecord.routeTargets));
       body.append(el("p","Continue retains the saved Point B and lets the GM choose the next eligible transportation method. Complete is available only at the confirmed final destination."));
@@ -4454,6 +5243,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       title:"Journey in progress to "+(destination??"selected destination"),
       notice:urgent?this.travelNotice:null
     }));
+    const context=this.approvedRouteContext(session.journeyRecord);
+    if(context)body.append(renderNavigationRouteContext(context));
     const summary=renderNavigationSummaryMetrics({metrics:[
       {label:"Current Leg Distance",value:showDistance(leg?.distance??this.result?.distance??0)},
       {label:"Travel Time",value:formatGuidedWorldTime(Math.round(hours*3600))},
@@ -4550,6 +5341,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
   }
 
   async _renderHTML(){
+    // Navigation is a GM-only application. Recheck before projecting any
+    // checkpoint, route, roster, fare or saved Journal details.
+    if(!globalThis.game?.user?.isGM){
+      this.travelProgressUI=null;
+      this.journeyTimeUI=null;
+      this.worldTimeUI=null;
+      return el("p","Only a GM may use Atlas Navigation.");
+    }
     const stage=this.navigationStage();
     if(stage!==NAVIGATION_STAGES.JOURNEY){
       // Drop references to the previous stage's detached DOM on transitions.
@@ -4605,6 +5404,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     }
     const destination = checkpointDestinationControl(this);
     if (destination) body.appendChild(destination);
+    if(!recoveredPlanError&&(!this.recoverableJourney||this.recoveryRecord)){
+      const context=this.routeReviewContext(this.result,{next:transferPlan?.hasTransitions?
+        transferPlan.legs[0]?.end:this.result?.end});
+      if(context)body.append(renderNavigationRouteContext(context));
+    }
     // An unresolved native checkpoint is still an approved Journal leg. Do
     // not present the default Walking selection or an unrelated recalculated
     // route as permission to replay a failed vessel movement.
@@ -4646,7 +5450,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const availability=this.transportAvailability();
     const methods=availability.methods;
     const partySelection=this.partyTravelSelection(availability.all);
-    const partySplitBlocked=Boolean(partySelection?.empty||
+    const ordinaryOwned=!transferPlan?.hasTransitions?this.ordinaryOwnedLeg():null;
+    const currentOwned=transferPlan?.legs[0]?.ownedDraft??transferPlan?.legs[0]?.ownedApproval??
+      ordinaryOwned?.ownedDraft;
+    const partySplitBlocked=Boolean(partySelection?.empty&&!currentOwned?.units.some(unit=>unit.namedCrew.length)||
       this.sourceMode==="party"&&this.getPartyToken()?.actor?.type==="group"&&
       game.system?.id==="dnd5e"&&!partySelection);
     const approvedActiveTransport=this.travelSession?.transportLeg?
@@ -4661,10 +5468,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       !recoveryLeg?.transport?recoveryLeg?.travelMethod:null;
     if(!pendingNativeReview&&!approvedActiveTransport&&!approvedRecoveryTransport&&
         !approvedRecoveryLand&&
-        !methods.some(item=>item.id===this.travelMethod)){
+        ordinaryOwned?.operatedUnits===undefined&&!methods.some(item=>item.id===this.travelMethod)){
       this.travelMethod="walking";this.transportArrangement="owned";
       this.transportHireTerms=null;this.transportHireDenomination=null;
-      this.transportJourneyOverrides=null;
+      this.transportJourneyOverrides=null;this.transportServiceLevel=null;
       this.transportOperation="normal";
     }
     let mixedFare=null;
@@ -4693,6 +5500,17 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           group:offer.checkpointName||"Nearby checkpoint"}]:[];
       })
     ];
+    if(ordinaryOwned?.operatedUnits!==undefined&&!choices.some(c=>c.value===ordinaryOwned.selectedValue))
+      choices.push({...ordinaryOwned.selectedOption,group:"Party"});
+    const currentLeg=transferPlan?.hasTransitions?transferPlan.legs[0]:ordinaryOwned;
+    // Selected-unit capacity is authoritative for this draft, never the full fleet.
+    const annotateOwnedChoice=choice=>{
+      if(currentLeg?.operatedUnits===undefined||choice.value!==currentLeg.selectedValue)return choice;
+      const draft=currentLeg.ownedDraft;
+      return {...choice,insufficient:false,secondary:draft?
+        draft.units.length+" operated unit(s) · "+draft.passengerSeats+"/"+draft.passengerCapacity+" passenger seats":
+        "Selected-unit estimate unavailable. Review operating units."};
+    };
     const annotatedChoices=choices.map(choice=>{
       if(!choice.value?.includes("|"))return choice;
       const [arrangement,id]=choice.value.split("|",2);
@@ -4733,7 +5551,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         roster:partySelection?.previewRoster,capacity
       }),insufficient:Boolean(capacity&&!capacity.sufficient)||
         Boolean(hireSupply&&!hireSupply.sufficient)};
-    });
+    }).map(annotateOwnedChoice);
     if(pendingNativeReview)
       body.appendChild(renderNavigationTravelMethodSelector({
         choices:[{value:"saved",label:pendingReviewMethodName,
@@ -4779,15 +5597,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           selected.surface==="land";
         const method=carrier?this.effectiveTransportMethod(selected,availability):null;
         const mountBoard=carrier||this.recoveryRecord?.legs?.at(-1)?.livestock?
-          renderJourneyLivestockBoarding({
+          this.renderJourneyLivestockDraft({
             resources:groupLivestockResources(partySelection.roster),
-            surface:"land",carried:carrier,method,decisions:this.livestockDecisions,
-            disabled:Boolean(this.journalStarting),onChange:(id,amount)=>{
-              this.livestockDecisions={...this.livestockDecisions,[id]:amount};
-              void this.render(true);
-            }}):null;
+            surface:"land",carried:carrier,method}):null;
         section.append(this.renderTravelersAndPace(partySelection,
-          availability,{disabled:Boolean(this.journalStarting),mixedFare,mountBoard}));
+          availability,{disabled:Boolean(this.journalStarting),mixedFare,mountBoard,ownedLeg:ordinaryOwned}));
+        if(ordinaryOwned?.ownedUnitChoices?.length||ordinaryOwned?.operatedUnits!==undefined)
+          section.append(this.renderOwnedOperatingUnits(ordinaryOwned,units=>this.setLandOperatedUnits(units)));
       }
       if(this.convoyEnabled&&!locked&&this.sourceMode==="party"&&
           partySelection&&!this.recoveryRecord&&!this.recoverableJourney){
@@ -4813,9 +5629,11 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           convertGroupSpeed(c.method.speedMph,"mph",sceneUnits));
         const slowest=Math.min(sceneSpeed,...cargoSpeeds);
         const cargoLimit=cargoSpeeds.length?Math.min(...cargoSpeeds):null;
-        let plan=null,error=null;
-        try{plan=this.mixedConvoyPlan();}
-        catch(e){error=e.message??String(e);}
+        let plan=null,error=null,fare=null;
+        try{
+          plan=this.mixedConvoyPlan();
+          fare=walkingCargoFareBreakdown(plan.hires,globalThis.CONFIG?.DND5E?.currencies);
+        }catch(e){plan=null;error=e.message??String(e);}
         const unit=walkDisplay.unit==="mi/hour"?"mph":
           walkDisplay.unit==="km/hour"?"kph":walkDisplay.unit;
         const current=this.convoyPace===null?null:
@@ -4830,7 +5648,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           plan:plan?{
             speed:displaySpeed(plan.speedPerHour).value.toFixed(2),
             moving:formatNavigationDuration(plan.movingHours,24),
-            cost:plan.totalCp+" CP"
+            cost:fare.total.label
           }:null,error,
           onQuantity:(id,count)=>{
             if(!Number.isInteger(count)||count<1||count>100){
@@ -5023,10 +5841,18 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
     const methodAssessment=this.assessTravelMethod();
     const selectedMethodChoice=annotatedChoices.find(choice=>choice.value===
       this.transportArrangement+"|"+this.travelMethod);
-    const blockedEstimate=Boolean(!this.travelSession&&!this.recoveryRecord&&
-      !this.recoverableJourney&&!transferPlan?.hasTransitions&&
+    const blockedOwnedCheckpoint=currentLeg?.operatedUnits!==undefined&&
+      Boolean(currentLeg.errors.length);
+    const blockedMixedCheckpoint=transferPlan?.hasTransitions&&
+      currentLeg?.selectedValue==="mixed-land"&&Boolean(currentLeg.errors.length);
+    const blockedRecoveredOwned=Boolean(approvedRecoveryLand&&
+      (approvedRecoveryLand.ownedApproval||recoveryLeg?.convoy?.methods?.some(m=>m.ownedApproval))&&
+      !methodAssessment.guided);
+    const blockedEstimate=Boolean(!this.travelSession&&(blockedOwnedCheckpoint||blockedMixedCheckpoint||recoveredPlanError||
+      blockedRecoveredOwned||
+      !this.recoveryRecord&&!this.recoverableJourney&&!transferPlan?.hasTransitions&&
       (selectedMethodChoice?.insufficient||
-        (this.convoyEnabled||this.mixedKeys.length)&&!methodAssessment.guided));
+        (this.convoyEnabled||this.mixedKeys.length)&&!methodAssessment.guided)));
     const repeatingCheckpoint=isRepeatedArrivalCheckpoint(this.recoveryRecord,
       transferPlan?.legs[0]?.arrivalCheckpoint);
     const assistedLegReady=Boolean(transferPlan?.hasTransitions&&
@@ -5057,9 +5883,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             "Insufficient seats for the selected travelers. "+
             "Choose another method or adjust the Group transportation roster."));
     }
-    if(!approvedActiveTransport&&!approvedRecoveryTransport&&
+    if(!approvedActiveTransport&&!approvedRecoveryTransport&&!approvedRecoveryLand&&
         this.travelMethod!=="walking"&&this.result?.status==="ok"&&
-        methodAssessment.compatible){
+        methodAssessment.compatible&&!transferPlan?.hasTransitions&&!blockedOwnedCheckpoint){
       try{
         const baseMethod=methods.find(item=>item.id===this.travelMethod);
         const method=baseMethod&&this.effectiveTransportMethod(baseMethod,availability);
@@ -5073,13 +5899,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
             projectGroupTransportation(actor,readGroupTransportation(game.settings),methods):null;
           const quoteRoster=partySelection?.previewRoster??roster;
           let ownedQuote=null;
-          if(this.transportArrangement==="owned"&&quoteRoster){
+          if(this.transportArrangement==="owned"&&quoteRoster&&ordinaryOwned?.operatedUnits===undefined){
             const capacity=groupMethodCapacityStatus(quoteRoster,method);
             if(capacity.sufficient)
               ownedQuote=groupMethodFareEstimate(quoteRoster,method,{hours:movingHours,
                 distanceMi,dayHours:this.resolveTravelRules(travel).dailyHours??8});
           }
-          if(this.transportArrangement==="hire"||ownedQuote){
+          if(this.transportArrangement==="hire"||ownedQuote||ordinaryOwned?.ownedDraft){
             const normalRules=resolveNavigationTravelRules({settings:game.settings,
               systemId:game.system?.id,actorHoursPerDay:travel?.hoursPerDay});
             const normalHours=method.surface==="land"?(normalRules.dailyHours??8):8;
@@ -5093,8 +5919,8 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
               operation,movingHours,distanceMi,
               travelers:quoteRoster?.travelers??1,ownedQuote,regularHours:normalHours,
               livestockCount,livestockPercent:readLivestockFarePercent(game.settings)};
-            const quote=quoteTransportationService(method,{...quoteArgs,
-              hireTerms:this.transportHireTerms});
+            const quote=this.planLandHiredService(method,partySelection)?.quote??ordinaryOwned?.serviceQuote??
+              quoteTransportationService(method,{...quoteArgs,hireTerms:this.transportHireTerms});
             const worldOperation=operation!=="normal"&&
               !baseMethod?.[operation+"Enabled"]?"normal":operation;
             const original=this.transportArrangement==="hire"&&baseMethod?.hireEnabled?
@@ -5107,8 +5933,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 aboard:this.livestockDecisions[item.actorId]})),
               estimatedFareCp:quote.livestockFareCp
             },{method,arrangement:this.transportArrangement,
-              worldPercent:readLivestockFarePercent(game.settings),
-              formatMoney}):null;
+              worldPercent:readLivestockFarePercent(game.settings),showFare:false}):null;
             const disabled=Boolean(this.travelSession||this.journalStarting);
             body.append(renderTransportQuote({
               worldEstimate:original?"World preset estimate: "+
@@ -5117,15 +5942,15 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 "hired service":"party-owned transport")+" estimate: "+
                 formatMoney(quote.totalCp),
               breakdown:[
-                "Transport excluding mounts: "+formatMoney(Math.max(0,
-                  Math.round(quote.totalCp)-Math.round(quote.livestockFareCp))),
-                quote.baseLabel+": "+formatMoney(quote.baseCp),
-                "Paid crew: "+formatMoney(quote.crewWagesCp),
-                "Overtime fare: "+formatMoney(quote.overtimeFareCp),
-                "Overtime labor: "+formatMoney(quote.overtimeCrewCp),
-                ...(mountDetails?[mountDetails]:[])
+                ...(!ordinaryOwned?.ownedDraft?[describeJourneyCrewEstimate(quote)].filter(Boolean):[]),
+                ...describeTransportationFareRows(quote,{owned:quote.arrangement==="owned",livestock:ordinaryOwned?.livestock,crewUnits:ordinaryOwned?.ownedDraft?.units,crewMethod:method,
+                  formatCoins:true,currencyConfig:globalThis.CONFIG?.DND5E?.currencies})
+                  .map(([label,value])=>label+": "+value),
+                ...(mountDetails?[mountDetails]:[]),
+                "Fare components are before rounding; the total is rounded once."
               ].join(" · "),
-              operatingSummary:(operation==="continuous"&&
+              operatingSummary:(quote.serviceLevel?"Hired service: "+quote.serviceLevel+" · "+quote.advertisedCrew+
+                " advertised crew per unit. ":"")+(operation==="continuous"&&
                 quote.hireTerms?.hireBasis==="day"?
                 quote.billableDayUnits.toFixed(2).replace(/\\.?0+$/,"")+
                   " normal-day fare unit(s) at "+normalHours+"h/day; "+
@@ -5137,10 +5962,10 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
                 (this.transportArrangement==="hire"?
                   "Checkpoint availability listed; booking not confirmed. ":"")+
                 "No currency is deducted.",
-              overrides:Boolean(this.transportJourneyOverrides&&
+              overrides:Boolean(this.transportServiceLevel||this.transportJourneyOverrides&&
                 Object.keys(this.transportJourneyOverrides).length),disabled,
               onReset:()=>{
-                this.transportJourneyOverrides=null;
+                this.transportJourneyOverrides=null;this.transportServiceLevel=null;
                 this.calculateRoute(this.canvasProvider(),this.atlasProvider(this.scene));
                 this.draw();void this.render(true);
               }
@@ -5210,18 +6035,13 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           const carrier=leg.selectedOption?.method?.kind==="vehicle"&&
             leg.surface==="land";
           const mountBoard=carrier||this.recoveryRecord?.legs?.at(-1)?.livestock?
-            renderJourneyLivestockBoarding({
+            this.renderJourneyLivestockDraft({
               resources:groupLivestockResources(partySelection.roster),
               surface:"land",carried:carrier,method:leg.selectedOption?.method,
-              planned:leg.livestock,decisions:this.livestockDecisions,
-              disabled:Boolean(this.journalStarting),
-              onChange:(id,amount)=>{
-                this.livestockDecisions={...this.livestockDecisions,[id]:amount};
-                void this.render(true);
-              }}):null;
+              planned:leg.livestock}):null;
           card.append(this.renderTravelersAndPace(partySelection,availability,{
             mixedFare,singleChoice:this.mixedKeys.length?null:leg.selectedOption,
-            mountBoard}));
+            ownedLeg:leg,mountBoard}));
         }else if(leg.recovered)card.append(renderCurrentTransferMethodSelector({
           options:leg.options,selectedValue:leg.selectedValue,disabled:true,
           editable:false,onChange:()=>{}
@@ -5229,7 +6049,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         else{
           const locked=Boolean(this.travelSession||this.journalStarting||!game.user?.isGM);
           card.append(renderNavigationTravelMethodButtons({
-            choices:leg.options,selectedValue:leg.selectedValue,disabled:locked,
+            choices:leg.options.map(annotateOwnedChoice),selectedValue:leg.selectedValue,disabled:locked,
             onMethodChange:value=>{
               if(locked)return;
               this.transferSelections[0]=value;
@@ -5250,41 +6070,36 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           if(!locked&&partyMode&&partySelection&&leg.selectedOption&&
               (["water","air"].includes(leg.surface)||
                 leg.surface==="land"&&leg.selectedOption.method?.kind==="vehicle")){
-            const mountBoard=renderJourneyLivestockBoarding({
+            const mountBoard=this.renderJourneyLivestockDraft({
               resources:groupLivestockResources(partySelection.roster),
-              decisions:this.livestockDecisions,method:leg.selectedOption.method,
-              planned:leg.livestock,surface:leg.surface,
-              carried:leg.surface==="land",disabled:locked,
-              onChange:(id,quantity)=>{
-                this.livestockDecisions={...this.livestockDecisions,[id]:quantity};
-                void this.render(true);
-              }});
+              method:leg.selectedOption.method,planned:leg.livestock,
+              surface:leg.surface,carried:leg.surface==="land",disabled:locked});
             card.append(this.renderTravelersAndPace(partySelection,availability,{
-              singleChoice:leg.selectedOption,mountBoard}));
+              ownedLeg:leg,singleChoice:leg.selectedOption,mountBoard}));
           }
         }
+        if(!leg.recovered&&leg.ownedUnitChoices?.length&&game.user?.isGM)
+          card.append(this.renderOwnedOperatingUnits(leg,units=>this.setCheckpointOperatedUnits(units)));
         if(!leg.recovered&&leg.serviceQuote&&!leg.errors.length){
           const fare=leg.serviceQuote;
           const mountDetails=describeJourneyMountFare(leg.livestock,{
             method:leg.selectedOption?.method,arrangement:fare.arrangement,
-            worldPercent:readLivestockFarePercent(game.settings),
-            formatMoney
+            worldPercent:readLivestockFarePercent(game.settings),showFare:false
           });
-          const otherTotal=Math.max(0,
-            Math.round(fare.totalCp)-Math.round(fare.livestockFareCp));
           card.append(renderTransportQuote({
             currentEstimate:"Current "+(fare.arrangement==="hire"?
               "hired service":"party-owned transport")+" estimate: "+
               formatMoney(fare.totalCp),
             breakdown:[
-              "Transport excluding mounts: "+formatMoney(otherTotal),
-              "Base fare: "+formatMoney(fare.baseCp),
-              "Paid crew: "+formatMoney(fare.crewWagesCp),
-              "Overtime fare and labor: "+
-                formatMoney(fare.overtimeFareCp+fare.overtimeCrewCp),
-              ...(mountDetails?[mountDetails]:[])
+              ...(!leg.ownedDraft?[describeJourneyCrewEstimate(fare)].filter(Boolean):[]),
+              ...describeTransportationFareRows(fare,{owned:fare.arrangement==="owned",livestock:leg.livestock,crewUnits:leg.ownedDraft?.units,crewMethod:leg.selectedOption?.method,
+                formatCoins:true,currencyConfig:globalThis.CONFIG?.DND5E?.currencies})
+                .map(([label,value])=>label+": "+value),
+              ...(mountDetails?[mountDetails]:[]),
+              "Fare components are before rounding; the total is rounded once."
             ].join(" · "),
-            operatingSummary:"Operating schedule: "+leg.operation+
+            operatingSummary:(fare.serviceLevel?"Hired service: "+fare.serviceLevel+" · "+fare.advertisedCrew+
+                " advertised crew per unit. ":"")+"Operating schedule: "+leg.operation+
               ". Estimates only; no booking, payment, rest, World time or "+
               "Token movement is authorized by this preview."
           }));
@@ -5337,7 +6152,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(blockedEstimate){
         metric("Travel Time","Unavailable");
         metric("Total Trip","Unavailable");
-        tripExplanation=(this.convoyEnabled||this.mixedKeys.length)&&
+        tripExplanation=blockedOwnedCheckpoint||blockedMixedCheckpoint?currentLeg.errors.join(" "):
+          recoveredPlanError?recoveredPlanError:blockedRecoveredOwned?
+          methodAssessment.reason:(this.convoyEnabled||this.mixedKeys.length)&&
           !methodAssessment.guided?
           (methodAssessment.reason??"Choose a valid shared convoy pace."):
           "This method cannot carry all selected travelers. "+
@@ -5350,7 +6167,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
           hours===null?"Choose method":formatGuidedWorldTime(Math.round(hours*3600)),
           "Time spent moving only. A standard day has up to 8 hours of travel; rests are separate GM decisions.");
         const rules=approvedActiveTransport?
-          this.travelSession.schedule.rules:this.resolveTravelRules(travel);
+          this.travelSession.schedule.rules:activeLeg?.ownedApproval?
+            this.resolveCurrentLegRules({...travel,methodId:activeLeg.ownedApproval.methodId},activeLeg.selectedOption,
+              {transport:{ownedApproval:activeLeg.ownedApproval,operation:activeLeg.operation}}):activeLeg?.ownedDraft?
+            {...resolveNavigationTravelRules({settings:game.settings,systemId:game.system?.id,actorHoursPerDay:null}),
+              profile:"transport-service",label:"Transport service",
+              dailyHours:activeLeg.ownedDraft.operation==="continuous"?null:activeLeg.ownedDraft.dailyHours,
+              overnightHours:activeLeg.ownedDraft.overnightHours,forcedMarch:"custom"}:
+            this.resolveTravelRules(travel);
         const schedule=approvedActiveTransport?this.travelSession.schedule:
           this.travelMethod==="walking"&&this.journeySchedule&&
           Math.abs(this.journeySchedule.travelHours-hours)<1e-5?
@@ -5424,6 +6248,7 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
         try{
           playbackTab.append(renderNavigationPlaybackControls({
             model:realPlaybackModel,
+            legScoped:Boolean(transferPlan?.hasTransitions),
             secondsPerHour:this.playbackSecondsPerHourOverride??
               readGuidedPlaybackSetting(game.settings),
             disabled:Boolean(this.journalStarting),
@@ -5595,6 +6420,9 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       id:panel.id,top:panel.scrollTop,left:panel.scrollLeft
     }));
     const top=content.scrollTop;
+    const focused=globalThis.document?.activeElement;
+    const focusKey=focused&&content.contains?.(focused)?
+      focused.getAttribute?.("data-atlas-travel-focus"):null;
     content.replaceChildren(result);
     for(const {id,top:scrollTop,left} of before){
       if(!id)continue;
@@ -5603,6 +6431,14 @@ export class AtlasNavigationController extends foundry.applications.api.Applicat
       if(panel&&Number.isFinite(left))panel.scrollLeft=left;
     }
     if(Number.isFinite(top))content.scrollTop=top;
+    if(focusKey){
+      const matching=[...(content.querySelectorAll?.("[data-atlas-travel-focus]")??[])]
+        .filter(node=>node.getAttribute("data-atlas-travel-focus")===focusKey&&
+          !node.disabled&&!node.closest?.("[hidden]"));
+      // Only restore a unique, visible draft control. Never focus another app
+      // or fall back to an unrelated action after a Journey becomes locked.
+      if(matching.length===1)matching[0].focus?.({preventScroll:true});
+    }
   }
 
   _onClose(options) {

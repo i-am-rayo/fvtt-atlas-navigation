@@ -325,3 +325,26 @@ test("owned mounts with no required crew default to zero wage",()=>{
   assert.equal(ship.crewCount,20);
   assert.equal(ship.crewWageCpPerDay,200,"crewed vessels retain the skilled-hireling default");
 });
+
+test("unpriced transport presets project editable hire estimates without enabling hire",()=>{
+  const catalog=defaultTransportationCatalog();
+  const before=JSON.stringify(catalog);
+  const values={[TRANSPORT_CATALOG_SETTING]:catalog};
+  const get=id=>findTransportationPreset(id,settings(values),"dnd5e");
+  for(const [id,cp] of Object.entries({
+    walking:0,mounted:75,camel:50,elephant:200,"draft-horse":50,
+    "riding-horse":75,mastiff:25,mule:8,pony:30,warhorse:400,
+    carriage:400,cart:250,chariot:500,sled:300,wagon:400,
+    "coach-hire":3,airship:5000,galley:30000,keelboat:3000,
+    longship:10000,rowboat:50,sailing:10000,warship:25000,"ship-passage":10
+  }))assert.equal(get(id).hireCostCp,cp,id);
+  assert.equal(get("warship").hireEnabled,false);
+  assert.equal(get("riding-horse").hireEnabled,false);
+  assert.equal(get("coach-hire").hireBasis,"mile");
+  assert.equal(get("ship-passage").hireApplies,"passenger");
+  assert.equal(JSON.stringify(catalog),before);
+  values[TRANSPORT_CATALOG_SETTING]=setTransportationPreset(catalog,"dnd5e2024",
+    {...get("warship"),hireCostCp:0,hireEnabled:true});
+  assert.equal(get("warship").hireCostCp,0,"explicit zero is a real rate");
+  assert.equal(get("warship").hireEnabled,true);
+});

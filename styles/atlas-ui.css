@@ -38,6 +38,51 @@
   outline-offset: 2px;
 }
 .atlas-ui-icon-button:disabled { opacity:.55; cursor:not-allowed; }
+/* Party-owned transport: compact, content-sized cards with native theme colors. */
+.atlas-group-transport-capacity {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  align-items: start;
+  gap: .3rem .6rem;
+  padding: .45rem .6rem;
+  border: 1px solid var(--color-border-light-tertiary, #666);
+  border-radius: .4rem;
+}
+.atlas-group-transport-capacity > strong { grid-column: 1 / -1; }
+.atlas-group-transport-capacity > span { font-size: .85rem; overflow-wrap: anywhere; }
+.atlas-group-transport-shortfall {
+  font-weight: 650;
+  color: var(--color-level-warning, inherit);
+}
+.atlas-group-transport-surface,
+.atlas-group-transport-npc,
+.atlas-group-transport-needs-setup { align-content: start; }
+.atlas-group-transport-resource {
+  padding: .5rem .65rem;
+  border: 1px solid var(--color-border-light-tertiary, #666);
+  border-radius: .4rem;
+}
+.atlas-group-transport-metrics,
+.atlas-group-transport-rider { overflow-wrap: anywhere; line-height: 1.35; }
+
+/* The Party editor has an explicit labeled primary action, not a 2rem glyph. */
+.application button.atlas-group-transport-save,
+.application button.atlas-editor-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: none;
+  min-width: 0;
+  padding: .35rem .65rem;
+  line-height: 1.25;
+  white-space: normal;
+}
+
 [data-atlas-territory-manager] legend .atlas-territory-add {
   display: inline-flex;
   align-items: center;
@@ -277,6 +322,23 @@
 }
 .atlas-transport-approval > h3,
 .atlas-transport-approval > p { margin: 0; overflow-wrap: anywhere; }
+.atlas-transport-approval {
+  max-height: min(65vh, 620px);
+  overflow-y: auto;
+  padding-inline-end: .25rem;
+}
+.atlas-transport-approval-overview {
+  font-weight: 700;
+  line-height: 1.5;
+}
+.atlas-transport-approval-roster summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.atlas-transport-approval-roster div {
+  margin-block-start: .35rem;
+  overflow-wrap: anywhere;
+}
 .atlas-transport-approval-table {
   width: 100%;
   table-layout: fixed;
@@ -327,4 +389,14 @@
   .atlas-transport-approval-metrics {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+}
+
+/* Separate destructive affordances from the safe editor actions. */
+.application button.atlas-editor-danger {
+  margin-inline-start:.55rem;
+  outline:1px solid var(--color-level-error,#d56859);
+  outline-offset:2px;
+}
+.application button.atlas-editor-danger:focus-visible {
+  outline:2px solid var(--color-border-highlight,#dcb476);
 }

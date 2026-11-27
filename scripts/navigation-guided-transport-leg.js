@@ -3,11 +3,13 @@
  * A checkpoint boundary clips movement before a different route surface.
  */
 import {validateMixedLandConvoy} from "./navigation-mixed-land.js";
+import {validateHiredServiceApproval} from "./navigation-transport-service.js";
+import {validateTransportJourneyInfo} from "./navigation-transport-journal.js";
 const finitePoint=p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y);
 const near=(a,b,tolerance=0.01)=>finitePoint(a)&&finitePoint(b)&&
   Math.hypot(a.x-b.x,a.y-b.y)<=tolerance;
 
-export function prepareGuidedTransportLeg(route,leg){
+export function prepareGuidedTransportLeg(route,leg,{draft=false}={}){
   if(route?.status!=="ok"||!Array.isArray(route.legs)||!leg||
       leg.index!==0||leg.firstRouteLeg!==0||
       !Number.isSafeInteger(leg.lastRouteLeg)||leg.lastRouteLeg<0||
@@ -34,14 +36,14 @@ export function prepareGuidedTransportLeg(route,leg){
   if(mixed&&(leg.surface!=="land"||leg.selectedOption.arrangement!=="mixed"||
       leg.selectedOption.method.id!=="mixed-land"||!leg.convoy||leg.operation!=="normal"))
     throw Error("A checkpoint-bound mixed convoy must be an approved land plan.");
-  const convoy=mixed?validateMixedLandConvoy(leg.convoy):null;
+  const convoy=mixed?validateMixedLandConvoy(leg.convoy,{draft:draft&&!leg.recovered}):null;
   const walking=mixed?convoy.methods.some(method=>method.role==="walking"):
     leg.selectedOption.method?.id==="walking";
   const terrainAware=walking&&leg.surface==="land"&&Boolean(route.terrainAware)&&
     (!mixed||leg.terrainAware!==false);
   if(mixed&&Math.abs((terrainAware?cost:distance)/convoy.speedPerHour-leg.hours)>1e-7)
     throw Error("The mixed checkpoint leg duration differs from its approved convoy pace.");
-  return {
+  const result={
     status:"ok",
     start:{...leg.start},end:{...leg.end},
     distance,cost:terrainAware?cost:distance,terrainAware,
@@ -58,8 +60,13 @@ export function prepareGuidedTransportLeg(route,leg){
       arrivalCheckpointName:leg.arrivalCheckpoint.name,
       roadNames:[...leg.roadNames],
       estimatedFareCp:mixed?null:leg.costCp??null,
-      operation:leg.operation??"normal",continuation:Boolean(leg.recovered)}
+      operation:leg.operation??"normal",continuation:Boolean(leg.recovered),
+      ...(leg.approvedService||leg.serviceQuote?.serviceLevel?{serviceApproval:
+        validateHiredServiceApproval(leg.approvedService??leg.serviceQuote)}:{}),
+      ...(leg.ownedApproval!==undefined?{ownedApproval:leg.ownedApproval}:{})}
   };
+  if(leg.ownedApproval!==undefined)result.transport=validateTransportJourneyInfo(result.transport);
+  return result;
 }
 
 export function confirmGuidedCheckpointArrival({token,gridSize,atlasPoint,

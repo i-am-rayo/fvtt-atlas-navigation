@@ -37,3 +37,46 @@ jobs:
           node-version: "24"
       - name: Check syntax and run tests
         run: npm run check
+      - name: Browser regression for serialized transportation dialogs
+        run: |
+          browser="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          test -n "$browser"
+          "$browser" --headless --disable-gpu --no-sandbox --disable-dev-shm-usage --allow-file-access-from-files --virtual-time-budget=15000 --dump-dom "file://$PWD/tests/browser/transport-dialog.html" > /tmp/atlas-transport-dialog.html
+          if ! grep -Fq '<output id="result">PASS: Atlas transport dialog browser regression</output>' /tmp/atlas-transport-dialog.html; then
+            cat /tmp/atlas-transport-dialog.html
+            exit 1
+          fi
+          echo "Verified browser-native serialized transportation controls, draft, Save/reopen and reset."
+      - name: Check pull request whitespace and conflict markers
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git diff --check "$BASE_SHA" HEAD
+      - name: Verify published test candidate manifest and archive
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if ! node -e 'process.exit(require("./module.json").version.includes("-") ? 0 : 1)'; then
+            echo "Stable version; no branch candidate download required."
+            exit 0
+          fi
+          manifest_url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/refs/heads/${HEAD_REF}/module.json"
+          archive_url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/heads/${HEAD_REF}.zip"
+          node -e 'const assert=require("node:assert/strict"),m=require("./module.json");assert.equal(m.manifest,process.argv[1]);assert.equal(m.download,process.argv[2]);' "$manifest_url" "$archive_url"
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          curl --fail --silent --show-error --location --retry 3 --max-time 90 "$manifest_url" -o "$tmp/manifest.json"
+          curl --fail --silent --show-error --location --retry 3 --max-time 180 "$archive_url" -o "$tmp/module.zip"
+          cmp module.json "$tmp/manifest.json"
+          unzip -tq "$tmp/module.zip"
+          unzip -q "$tmp/module.zip" -d "$tmp/unpacked"
+          roots=("$tmp"/unpacked/*)
+          test "${#roots[@]}" -eq 1
+          root="${roots[0]}"
+          cmp module.json "$root/module.json"
+          cmp package.json "$root/package.json"
+          node -e 'const fs=require("node:fs"),path=require("node:path"),m=require("./module.json");for(const file of [...m.esmodules,...m.styles,...m.languages.map(x=>x.path),m.readme]){if(!fs.statSync(path.join(process.argv[1],file)).isFile())throw Error("Missing candidate asset: "+file);}' "$root"
+          echo "Verified candidate manifest, archive, package version and declared runtime assets."

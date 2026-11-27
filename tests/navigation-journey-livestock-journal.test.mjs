@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {createJourneyRecord,validateJourneyRecord,resumeJourneyRecord,
+import {createJourneyRecord,validateJourneyRecord,resumeJourneyRecord,checkpointJourneyRecord,
   formatJourneyJournalHTML} from "../scripts/navigation-journey-journal.js";
 import {planJourneyLivestock,projectAccompanyingLivestock}
   from "../scripts/navigation-journey-livestock.js";
+import {quoteTransportationService,validateHiredServiceApproval} from "../scripts/navigation-transport-service.js";
 const group={members:[
   {actorId:"riders",actorName:"Cassian",role:"passenger",actorType:"character",quantity:1},
   {actorId:"a",actorName:"Warhorse",role:"mount",actorType:"npc",
@@ -113,4 +114,58 @@ test("approved land vehicle carriage is readable, immutable, and separate from l
  const tampered=structuredClone(rec);
  tampered.legs[0].livestock.capacityPerUnit=0;
  assert.throws(()=>validateJourneyRecord(tampered),/invalid recovery metadata/);
+});
+
+test("hired service Journal shows exact fare components once across mount recovery",()=>{
+  const method={id:"ship-passage",name:"Ship passage",kind:"vehicle",surface:"water",
+    capacity:6,hireEnabled:true,hireApplies:"passenger",hireBasis:"trip",hireCostCp:10.1,
+    crewCount:4,crewThresholds:{minimum:1,optimal:2,excellent:3},
+    hireCrewIncluded:true,livestockCapacity:3};
+  for(const percent of [0,50,200]){
+    const approval=validateHiredServiceApproval(quoteTransportationService(method,{
+      arrangement:"hire",serviceLevel:"minimum",movingHours:10,distanceMi:30,
+      travelers:2,livestockCount:1,livestockPercent:percent}));
+    const mountFare=approval.livestockFareCp;
+    const manifest=planJourneyLivestock(group,{a:1,b:0},{surface:"water",
+      methodId:method.id,units:1,capacityPerUnit:3,fareCp:mountFare});
+    const plan=route(manifest,{...ship,serviceApproval:approval,estimatedFareCp:approval.totalCp});
+    const record=create(plan);
+    const progress=(record,hours,percent,status="interrupted")=>checkpointJourneyRecord(record,{
+      schedule:{completedHours:hours,todayHours:hours,permittedExtraUntil:0,restEvents:0,
+        lastForcedCheck:null,events:[]},progress:percent,status});
+    const paused=progress(record,4,40);
+    const resume=record=>resumeJourneyRecord(record,{atlasRevision:7,itinerary:route(manifest,{
+      ...plan.transport,continuation:true,estimatedFareCp:0})});
+    const resumed=progress(resume(paused),6,100,"paused");
+    const before=structuredClone(resumed);
+    const html=formatJourneyJournalHTML(resumed,{systemId:"dnd5e"});
+    assert.match(html,/Base transportation: 20\.2 CP/);
+    assert.ok(html.includes("Physical mount boarding: "+mountFare+" CP"));
+    assert.equal((html.match(/Physical mount boarding:/g)??[]).length,1);
+    assert.equal((html.match(/Original estimated total:/g)??[]).length,1);
+    assert.doesNotMatch(html,/Estimated animal fare:/,"the saved service already includes the mount component");
+    assert.match(html,/Continuing previously approved service; no new fare/);
+    assert.equal((html.match(/Warhorse: 1 of 1 embarked/g)??[]).length,2);
+    assert.deepEqual(resumed,before,"render never modifies approved fare or mount manifest");
+    const zero=progress(resume(progress(record,0,0)),4,40);
+    assert.equal((formatJourneyJournalHTML(zero,{systemId:"dnd5e"}).match(/Physical mount boarding:/g)??[]).length,1,
+      "no prior confirmed movement means the first visible history still has the original estimate");
+    const onward=progress(resumeJourneyRecord(resumed,{atlasRevision:7,itinerary:plan}),10,100,"completed");
+    assert.equal((formatJourneyJournalHTML(onward,{systemId:"dnd5e"}).match(/Physical mount boarding:/g)??[]).length,2,
+      "a new completed leg with identical terms owns a separate quote");
+  }
+});
+
+test("legacy mount-only history shows one estimate across an unfinished leg",()=>{
+  const manifest=planJourneyLivestock(group,{a:1,b:0},{surface:"water",
+    methodId:"ship-passage",units:1,capacityPerUnit:3,fareCp:50});
+  const saved=create(route(manifest));
+  saved.legs[0].completedMovingHours=4;saved.legs[0].completedPercent=40;saved.status="interrupted";
+  const resumed=resumeJourneyRecord(saved,{atlasRevision:7,itinerary:route(manifest,{...ship,
+    continuation:true,estimatedFareCp:0})});
+  resumed.legs[1].completedMovingHours=6;resumed.legs[1].completedPercent=100;
+  const html=formatJourneyJournalHTML(resumed);
+  assert.equal((html.match(/Estimated animal fare: 50 CP/g)??[]).length,1);
+  assert.match(html,/Previously approved animal accommodation; no new fare/);
+  assert.equal((html.match(/Warhorse: 1 of 1 embarked/g)??[]).length,2);
 });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote}
+import {renderTransportAdvisory,renderTransportCapacity,renderTransportQuote,describeOwnedCrewProfile}
   from "../scripts/navigation-transport-summary-view.js";
 
 const mockDOM=()=>{
@@ -69,4 +69,11 @@ test("fare breakdown never charges, and reset requires an enabled click",()=>{
     assert.equal(noOverrides.children[0].textContent,
       "Current hired service estimate: 8 GP");
   }finally{restore();}
+});
+
+test("owned crew policy displays exact wages using the same coin denominations as the editor",()=>{
+  const method={crewCount:30,includeCrewWages:true,crewWageBasis:"day"};
+  assert.match(describeOwnedCrewProfile({...method,crewWageCpPerDay:200}),/Crew wage rate: 2 GP per crew member/);
+  assert.match(describeOwnedCrewProfile({...method,crewWageCpPerDay:0.5}),/Crew wage rate: 0.5 CP per crew member/);
+  assert.match(describeOwnedCrewProfile({...method,crewWageCpPerDay:0}),/Crew wage rate: 0 CP per crew member/);
 });

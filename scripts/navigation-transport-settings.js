@@ -6,7 +6,7 @@
 import { TRANSPORT_CATALOG_SETTING,TRANSPORT_SURFACES,TRANSPORT_KINDS,
   TRANSPORT_COST_BASES,TRANSPORT_HIRE_BASES,TRANSPORT_CREW_WAGE_BASES,readTransportationCatalog,listTransportationPresets,
   selectedTransportationProfile,setTransportationPreset,resetTransportationPreset,
-  deleteCustomTransportationPreset,addOptionalTirelessExamples,estimateTransportationTrip }
+  deleteCustomTransportationPreset,addOptionalTirelessExamples,estimateTransportationTrip,resolveCrewThresholds,HIRE_SERVICE_LEVELS,validateHireServiceLevels }
   from "./navigation-transport-catalog.js";
 import { NAVIGATION_SPEED_SETTING,DEFAULT_NAVIGATION_SPEED } from "./navigation-time.js";
 import { NAVIGATION_PLAYBACK_SETTING,NAVIGATION_PLAYBACK_DEFAULT,
@@ -24,9 +24,10 @@ import { NAVIGATION_MOUNTED_SPEED_SETTING,NAVIGATION_SAILING_SPEED_SETTING,
   from "./navigation-travel-method.js";
 import { createSettingsSelect,createSettingsGroupedSelect } from "./settings-select.js";
 import {LIVESTOCK_FARE_PERCENT_SETTING,LIVESTOCK_FARE_PERCENT_DEFAULT,
-  readLivestockFarePercent,validLivestockFarePercent}
+  readLivestockFarePercent,validLivestockFarePercent,resolveTransportationOperation,resolveHiredServiceLevel}
   from "./navigation-transport-service.js";
 import { createSettingsCategoryTabs } from "./settings-category-tabs.js";
+import {describeOwnedCrewProfile} from "./navigation-transport-summary-view.js";
 import { createAtlasIconButton } from "./ui-action-button.js";
 import {createTransportNumberSlider,createTransportCurrencyPool,transportCurrencyAmount}
  from "./navigation-transport-form-controls.js";
@@ -98,8 +99,8 @@ const heading=(text,description)=>{
   if(description){const p=element("p",description);p.style.cssText="margin:0;opacity:.8;";section.append(p);}
   return section;
 };
-const selected=(choices,value,name)=>{
-  const control=createSettingsSelect(choices,{selectedId:value,name});
+const selected=(choices,value,name,{alphabetize=true}={})=>{
+  const control=createSettingsSelect(choices,{selectedId:value,name,alphabetize});
   control.style.cssText="width:100%;min-width:0;";return control;
 };
 /** Forms serialize DOM content in DialogV2. Listeners attached before opening do
@@ -110,13 +111,16 @@ const wireSliders=container=>{
   for(const range of root?.querySelectorAll?.("[data-atlas-range-for]")??[]){
     const name=range.getAttribute("data-atlas-range-for");
     const numeric=root.querySelector('[name="'+name+'"]');
-    if(!numeric||range.dataset.atlasWired==="true")continue;
-    range.dataset.atlasWired="true";
-    range.addEventListener("input",()=>{numeric.value=range.value;});
-    numeric.addEventListener("input",()=>{
+    if(!numeric)continue;
+    const sync=()=>{
       if(numeric.value!==""&&Number.isFinite(Number(numeric.value)))
         range.value=String(Math.max(Number(range.min),Math.min(Number(range.max),Number(numeric.value))));
-    });
+    };
+    sync();
+    if(range.dataset.atlasWired==="true")continue;
+    range.dataset.atlasWired="true";
+    range.addEventListener("input",()=>{numeric.value=range.value;});
+    numeric.addEventListener("input",sync);
   }
 };
 /** Reconnect preset tabs/preview after DialogV2 serializes and rehydrates its HTML. */
@@ -152,7 +156,7 @@ const wirePresetDialog=container=>{
       tabs[next].focus();
     });
   }
-  activate("general");
+  activate((tabs.find(tab=>tab.getAttribute?.("aria-selected")==="true")??tabs[0]).dataset.atlasPresetTab);
   const fieldValue=name=>root.querySelector('[name="'+name+'"]');
   const number=name=>Number(fieldValue(name)?.value??0);
   const currency=name=>transportCurrencyAmount(Object.fromEntries(
@@ -182,8 +186,7 @@ const wirePresetDialog=container=>{
       for(const control of root.querySelectorAll(
         '[name="hireQuantity"],[data-atlas-range-for="hireQuantity"]'))
         control.disabled=!hireOn||unlimited;
-      const hireControls=root.querySelector("[data-atlas-hire-controls]");
-      if(hireControls){hireControls.style.opacity=hireOn?"1":".42";
+      for(const hireControls of root.querySelectorAll("[data-atlas-hire-controls]")){hireControls.style.opacity=hireOn?"1":".42";
         hireControls.style.pointerEvents=hireOn?"auto":"none";
         hireControls.setAttribute("aria-disabled",String(!hireOn));}
       const purchasable=Boolean(fieldValue("purchaseEnabled")?.checked);
@@ -264,8 +267,14 @@ function wireGroupOwnedTransport(root,profiles) {
       const n=Math.floor(rest/ratio);rest-=n*ratio;put(prefix+"_"+unit,n);
     }
   };
+  const updateCrew=()=>{
+    const crew=root.querySelector("[data-atlas-group-crew]");
+    if(crew)crew.textContent=describeOwnedCrewProfile(
+      profiles.find(p=>p.id===get("groupProfileId")?.value),Number(get("groupQuantity")?.value));
+  };
   const populate=()=>{
     const method=profiles.find(p=>p.id===get("groupProfileId")?.value);
+    updateCrew();
     if(!method)return;
     if(!get("groupSpeedCustom")?.checked)
       put("speedDisplay",Number(atlasDisplayPresetSpeed(method.speedMph).value.toFixed(2)));
@@ -295,6 +304,7 @@ function wireGroupOwnedTransport(root,profiles) {
     const override=groupFields[name]||
       (name.startsWith("cost_")?"groupCostCustom":null);
     if(override){const input=get(override);if(input)input.checked=true;}
+    if(name==="groupQuantity")updateCrew();
   };
   root.addEventListener("input",mark);
   root.addEventListener("change",mark);
@@ -418,11 +428,15 @@ export class AtlasTransportationSettings extends ApplicationBase {
   }
 
   async _edit(preset,surface="land",{scope="world",onSave=null,onReset=null,
-    onSaveCheckpoint=null,checkpointName=null,journeyOperation=null,
+    onSaveCheckpoint=null,checkpointName=null,journeyOperation=null,inheritedMethod=null,journeyServiceLevel=null,
     groupAssignment=null,profiles=[],groupActorName="",groupKind="vehicle",
-    groupRiders=[]}={}){
+    groupRiders=[],checkpointDraftTarget="Map Marker",checkpointOverrides={}}={}){
     if(!game.user?.isGM)throw new Error("Only a GM may edit transportation presets.");
-    const group=scope==="group";
+    const group=scope==="group",checkpoint=scope==="checkpoint";
+    const defaultTab=checkpoint?"services":"general";
+    const initialSource=(key,help)=>checkpoint?help+" Opening draft: "+
+      (Object.hasOwn(checkpointOverrides,key)?"Local override.":
+        ["hireUnlimited","hireQuantity"].includes(key)?"Map Marker default.":"Inherited World value."):help;
     if(group&&(typeof onSave!=="function"||!["mount","vehicle"].includes(groupKind)))
       throw Error("Invalid Party transportation editor context.");
     const existing=Boolean(preset),profile=selectedTransportationProfile(game.settings,game.system?.id);
@@ -455,32 +469,34 @@ export class AtlasTransportationSettings extends ApplicationBase {
       "Edit "+value.name:"New "+names[surface]+" transportation",
       group?"Edit this Party-owned resource using the shared transportation settings. "+
         "Unchecked customizations inherit the linked World profile. Apply changes only the Party draft.":
-      scope==="checkpoint"?"Change local Map Marker settings; unchanged values continue to inherit World presets. Nothing is charged.":
+      checkpoint?"Edit this "+checkpointDraftTarget+" offer. Changes apply only to its draft; unchanged values inherit World presets. This is not Adjust for this leg. Nothing is booked or charged.":
       scope==="journey"?(onSaveCheckpoint?"Save explicitly for this trip or to this Map Marker. World and Actor data will not change.":"Save this journey estimate only. World, Map Marker and Actor data will not change."):
       "Edit reference values for your World. Nothing is charged automatically."));
     const nav=element("nav");nav.setAttribute("role","tablist");
     nav.setAttribute("aria-label","Transportation preset editor sections");
     nav.style.cssText="display:flex;gap:.3rem;border-bottom:2px solid var(--color-border-light-tertiary,#555);";
     const panels={};
-    for(const [id,label] of [["general","General"],["services","Services"],["cost","Ownership"]]){
+    const tabOrder=checkpoint?[["services","Hire & availability"],["general","General"],["cost","Ownership"]]:
+      [["general","General"],["services","Services"],["cost","Ownership"]];
+    for(const [id,label] of tabOrder){
       const tab=element("button",label);tab.type="button";
       tab.setAttribute("role","tab");tab.setAttribute("data-atlas-preset-tab",id);
-      tab.setAttribute("aria-selected",String(id==="general"));
+      tab.setAttribute("aria-selected",String(id===defaultTab));
       if(group&&id==="services"){
         tab.disabled=true;tab.setAttribute("aria-disabled","true");
         tab.title="Party-owned transportation is not a hired service.";
       }
-      tab.tabIndex=id==="general"?0:-1;
+      tab.tabIndex=id===defaultTab?0:-1;
       tab.style.cssText="padding:.6rem 1rem;border-radius:.45rem .45rem 0 0;";
       nav.append(tab);
       const panel=element("section");panel.setAttribute("role","tabpanel");
       panel.setAttribute("aria-label",label);
       panel.setAttribute("data-atlas-preset-panel",id);
-      panel.hidden=id!=="general";
-      panel.style.cssText="display:"+(id==="general"?"grid":"none")+";gap:.85rem;min-width:0;";
+      panel.hidden=id!==defaultTab;
+      panel.style.cssText="display:"+(id===defaultTab?"grid":"none")+";gap:.85rem;min-width:0;";
       panels[id]=panel;
     }
-    body.append(nav,panels.general,panels.services,panels.cost);
+    body.append(nav,...tabOrder.map(([id])=>panels[id]));
     if(group){
       panels.services.setAttribute("inert","");
       panels.services.setAttribute("aria-disabled","true");
@@ -510,11 +526,8 @@ export class AtlasTransportationSettings extends ApplicationBase {
           "Number of owned mounts or vehicles represented by this Actor.")
       );
       if(groupKind==="mount"){
-        const riders=[["","None — shared mount"],...groupRiders.map(rider=>
-          [rider.id,rider.name+" · "+rider.id])];
         const assignedId=String(baseline.assignedTo??"");
-        if(assignedId&&!groupRiders.some(rider=>rider.id===assignedId))
-          riders.push([assignedId,"Unavailable party member: "+assignedId]);
+        const riders=groupRiderOptions(groupRiders,assignedId);
         const assigned=createSettingsSelect(riders,{selectedId:assignedId,
           name:"groupAssignedTo",ariaLabel:"Assigned To"});
         groupFields.append(field("Assigned To",assigned,
@@ -583,7 +596,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
     identity.append(field("Name",name),field("Type",kind),
       field("Planning speed ("+(preset?.id==="walking"?
         (sceneUnit||"Scene units")+"/hour":atlasDisplayPresetSpeed(value.speedMph??3).unit)+")",
-        speedControl,"Sustained travel pace, not combat speed."));
+        speedControl,initialSource("speedMph","Sustained travel pace, not combat speed.")));
     panels.general.append(identity);
     const groupOverride=(name,isOverridden)=>{
       const flag=checkbox(name,isOverridden);
@@ -606,11 +619,38 @@ export class AtlasTransportationSettings extends ApplicationBase {
       {min:0,max:1000,step:1,numericStep:1,label:"Required crew count"});
     if(group)for(const input of crewControl.querySelectorAll?.("input")??crewControl.children??[])
       input.disabled=true;
-    operations.append(field("Passenger capacity",capacity,
-      "Passenger seats excluding required crew."));
-    if(!group)operations.append(field("Required crew",crewControl,
-      "Crew separate from paying passengers; native ship values are reference counts."));
-    panels.general.append(operations);
+    const passengerField=field(group?"Passenger seats per unit":"Passenger capacity",capacity,
+      initialSource("capacity","Passenger seats excluding required crew."));
+    const crewField=field("Required crew",crewControl,
+      initialSource("crewCount","Crew separate from paying passengers; native ship values are reference counts."));
+    operations.append(passengerField);
+    if(!group&&!checkpoint)operations.append(crewField);
+    if(group){
+      const staffing=element("div");staffing.className="atlas-transport-field";
+      const count=element("p",describeOwnedCrewProfile(
+        profiles.find(p=>p.id===baseline.profileId),baseline.quantity??1));
+      count.setAttribute("data-atlas-group-crew","");count.setAttribute("aria-live","polite");
+      staffing.append(element("strong","Required crew per unit"),count,
+        element("small","Crew are separate from passenger seats. Edit staffing and wages in the World profile."));
+      operations.append(staffing);
+    }
+    if(!checkpoint)panels.general.append(operations);
+    if(scope==="world"||scope==="checkpoint"){
+      const inherited=inheritedMethod?.crewThresholds;
+      const explicit=scope==="checkpoint"&&JSON.stringify(value.crewThresholds)===JSON.stringify(inherited)?
+        undefined:value.crewThresholds;
+      const thresholds=resolveCrewThresholds({crewCount:value.crewCount??0});
+      const fields=row("8rem");
+      for(const [key,label] of [["minimum","Minimum"],["optimal","Optimal"],["excellent","Excellent"]]){
+        const input=numberInput("crew"+label,explicit?.[key]??"",{min:0,max:1000,step:1});
+        input.placeholder=String(inherited?.[key]??thresholds[key]);
+        fields.append(field(label,input));
+      }
+      panels.general.append(heading("Crew staffing thresholds",
+        "Full staffing is the required crew count. Leave all three fields blank to inherit the "+
+        (scope==="checkpoint"?"World thresholds.":"25%, 50% and 75% reference thresholds (rounded up).")+
+        " Staffing is advisory."),fields);
+    }
     if(group)panels.general.append(groupOverride("groupCapacityCustom",
       baseline.capacity!=null));
     const note=element("textarea");note.name="note";note.maxLength=240;
@@ -623,6 +663,13 @@ export class AtlasTransportationSettings extends ApplicationBase {
       "Optional setting and world-building details."));
     // Per-Journey schedule is a trip decision, not a World transport preset.
     // Keep it in the shared editor to avoid a second, contradictory selector.
+    if(scope==="journey"&&journeyServiceLevel!==null){
+      panels.general.append(field("Hired service level",selected([["","Reference service (legacy schedule)"],
+        ...HIRE_SERVICE_LEVELS.map(tier=>[tier,tier[0].toUpperCase()+tier.slice(1)])],
+        journeyServiceLevel,"atlasJourneyServiceLevel",{alphabetize:false}),
+        journeyOperation===null?"The selected tier determines advertised crew and rates. The convoy retains its shared travel day; additional operating hours are not used.":
+        "The selected tier determines this leg’s operating schedule and advertised crew. It overrides the reference schedule below; choosing Reference restores manual scheduling."));
+    }
     if(scope==="journey"&&journeyOperation!==null){
       const daily=resolveNavigationTravelRules({
         settings:game.settings,systemId:game.system?.id,actorHoursPerDay:null});
@@ -633,7 +680,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
       if(value.continuousEnabled&&value.kind==="vehicle")
         choices.push(["continuous","Continuous — 24h/day"]);
       panels.general.append(field("Operating schedule for this journey",
-        selected(choices,journeyOperation,"atlasJourneyOperation"),
+        selected(choices,journeyOperation,"atlasJourneyOperation",{alphabetize:false}),
         "Saved with this trip only. The World method determines which schedules are available."));
     }
 
@@ -642,44 +689,48 @@ export class AtlasTransportationSettings extends ApplicationBase {
       "Rates are GM estimates unless noted as published D&D references. No booking or payment occurs."));
     const toggles=row("16rem");
     const hireControl=serviceToggle("hireEnabled",value.hireEnabled??false,
-      "Available for hire / passage","Single-rider mounts are not offered for hire by default.");
+      "Available for hire / passage",initialSource("hireEnabled","Single-rider mounts are not offered for hire by default."));
     const crewOption=serviceToggle("hireCrewIncluded",value.hireCrewIncluded??true,
-      "Driver / crew included in fare","Included by default; never charge the same crew twice.");
+      "Driver / crew included in fare",initialSource("hireCrewIncluded","Included by default; never charge the same crew twice."));
     crewOption.setAttribute("data-atlas-hire-crew-option","");
-    toggles.append(hireControl);
+    if(!checkpoint)toggles.append(hireControl);
     if(scope==="checkpoint"||scope==="journey"&&checkpointName){
       toggles.append(serviceToggle("hireUnlimited",value.hireUnlimited??true,
-        "Unlimited availability","Enough units may always be hired at this Map Marker."),
+        "Unlimited availability",initialSource("hireUnlimited","Enough units may always be hired at this Map Marker.")),
         field("Quantity available",
           slider("hireQuantity",value.hireQuantity??1,
             {min:0,max:100,step:1,numericStep:1,label:"Vehicles available"}),
-          "Finite number of mounts or vehicles at this location."));
+          initialSource("hireQuantity","Finite number of mounts or vehicles at this location.")));
     }
-    toggles.append(crewOption);
+    if(!checkpoint)toggles.append(crewOption);
     if(value.kind==="foot")toggles.style.opacity=".5";
-    panels.services.append(toggles);
+    if(!checkpoint)panels.services.append(toggles);
     const hireControls=element("div");hireControls.setAttribute("data-atlas-hire-controls","");
     hireControls.style.cssText="display:grid;gap:.85rem;";
     const hireRow=row("13rem");
     hireRow.append(field("Hired service fare",priceInput("hire",
         value.hireBasis==="mile"?atlasDisplayCostPerDistance(value.hireCostCp??0):
           value.hireCostCp??0),
-      "Combine PP, GP, EP, SP and CP to set one fare."),
+      initialSource("hireCostCp","Combine PP, GP, EP, SP and CP to set one fare.")),
       field("Fare frequency",selected(TRANSPORT_HIRE_BASES.map(k=>[
         k,k==="trip"?"Once per trip":k==="day"?"Per operating day":
           "Per "+(resolveAtlasMeasuringUnits()==="metric"?"kilometer":"mile")
       ]),value.hireBasis??"day","hireBasis"),
-      "Trip = once; day = each operating day; distance = every mile/km traveled."),
+      initialSource("hireBasis","Trip = once; day = each operating day; distance = every mile/km traveled.")),
       field("Charge per",selected([["unit","Whole mount or vehicle"],
         ["passenger","Each passenger"]],value.hireApplies??"unit","hireApplies"),
-      "Whole vehicle charges once per required vehicle; passenger charges each traveler."));
+      initialSource("hireApplies","Whole vehicle charges once per required vehicle; passenger charges each traveler.")));
     hireControls.append(hireRow);
+    if(checkpoint){
+      panels.services.append(hireControl,hireControls,toggles,
+        heading("Passenger capacity","Seats per mount or vehicle; no boarding occurs."),operations);
+    }
     if(value.kind==="vehicle"&&["land","water","air"].includes(value.surface)){
       const livestock=row("13rem");
       livestock.append(field("Animal spaces per vehicle",
         numberInput("livestockCapacity",value.livestockCapacity??"",
           {min:0,max:1000,step:1}),
-        "Blank = unlimited (default); 0 = prohibited; positive = animal spaces per vehicle. Passenger seats stay separate."),
+        initialSource("livestockCapacity","Blank = unlimited (default); 0 = prohibited; positive = animal spaces per vehicle. Passenger seats stay separate.")),
         field("Mount boarding fare policy",
           selected([["global","Inherit World default ("+
             readLivestockFarePercent(game.settings)+"%)"],
@@ -718,17 +769,55 @@ export class AtlasTransportationSettings extends ApplicationBase {
         slider("overtimeMultiplier",value.overtimeMultiplier??1.5,
           {min:1,max:5,step:.1,numericStep:.1,label:"Overtime multiplier"}),
         "Premium for extra travel hours."));
-    hireControls.append(overtime);
+    const scheduleControls=checkpoint?element("div"):hireControls;
+    if(checkpoint){
+      scheduleControls.setAttribute("data-atlas-hire-controls","");
+      scheduleControls.style.cssText="display:grid;gap:.85rem;";
+      const crewRow=row("13rem");crewRow.append(crewField,crewOption);
+      panels.services.append(heading("Crew & operating schedule","Operating options are estimates; not an approved Journey."),crewRow,scheduleControls);
+    }
+    scheduleControls.append(overtime);
     if(value.kind==="vehicle")
-      hireControls.append(serviceToggle("continuousEnabled",value.continuousEnabled??false,
+      scheduleControls.append(serviceToggle("continuousEnabled",value.continuousEnabled??false,
         "Allow continuous travel",
         "Vehicles with rotating drivers, crew, magic or equivalent; never assumed for a normal trip."));
     const hireExplanation=element("small",travelers.source+
       ". Preview assumes an 8-hour operating day; route-length fare follows that day's travel distance.");
-    hireControls.append(hireExplanation);
-    hireControls.append(preview(["Scenario","Charged to","Service fare","Estimated cost"],
+    scheduleControls.append(hireExplanation);
+    scheduleControls.append(preview(["Scenario","Charged to","Service fare","Estimated cost"],
       ["scenario","count","fare","total"],"data-atlas-hire-preview"));
-    panels.services.append(hireControls);
+    if(!checkpoint)panels.services.append(hireControls);
+    // Tier configuration stays editable even while hire availability is disabled.
+    if(!group&&value.kind==="vehicle"&&(["world","checkpoint"].includes(scope)||scope==="journey"&&Boolean(checkpointName))){
+      const tiers=element("div");
+      tiers.style.cssText="display:grid;gap:.6rem;";
+      tiers.append(heading("Hired service levels",
+        "Advertised crew uses the staffing thresholds in General. Blank fare and schedule inherit defaults. "+
+        "Each level uses the shared fare frequency and charging unit; schedule choices require the corresponding capability. "+
+        "Setting rates does not enable hire."));
+      const thresholds=resolveCrewThresholds({crewCount:value.crewCount??0});
+      const displayRate=cp=>String((value.hireBasis==="mile"?atlasDisplayCostPerDistance(cp):cp)/100);
+      const local=validateHireServiceLevels(value.hireServiceLevels??{});
+      const inherited=validateHireServiceLevels(inheritedMethod?.hireServiceLevels??{});
+      for(const tier of HIRE_SERVICE_LEVELS){
+        const name=tier[0].toUpperCase()+tier.slice(1);
+        const record=local[tier]??{},parent=inherited[tier]??{};
+        const hasRate=record.hireCostCp!==undefined&&record.hireCostCp!==parent.hireCostCp;
+        const hasOperation=record.operation!==undefined&&record.operation!==parent.operation;
+        const rate=numberInput("hireLevelRate-"+tier,hasRate?displayRate(record.hireCostCp):"",
+          {min:0,max:1000000,step:"any"});
+        rate.placeholder=displayRate(parent.hireCostCp??value.hireCostCp??0);
+        const choices=[["","Inherit"+(parent.operation?" "+parent.operation:" schedule")],
+          ["normal","Standard"],["overtime","Overtime"],["continuous","Continuous"]];
+        const schedule=selected(choices,hasOperation?record.operation:"","hireLevelOperation-"+tier);
+        const entry=row("10rem");
+        entry.append(field(name+" service fare (GP)",rate,
+          "Per shared fare period"+(value.hireBasis==="mile"?" (displayed distance unit)":"")+"; blank inherits."),
+          field(name+" operating schedule",schedule));
+        tiers.append(entry);
+      }
+      panels.services.append(tiers);
+    }
 
     // Ownership — sale price, staff pay, and optional feed/maintenance.
     panels.cost.append(heading("Ownership",
@@ -799,11 +888,12 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const shell=element("div");shell.appendChild(body);
     const response=await foundry.applications.api.DialogV2.input({
       window:{title:group?"Atlas — Edit "+(groupActorName||value.name)+" Transportation":
+        checkpoint?"Edit "+checkpointDraftTarget+" offer — "+value.name:
         existing?"Edit "+preset.name:"Add "+names[surface]+" transportation"},
       position:{width:Math.max(360,Math.min(860,(globalThis.window?.innerWidth??980)-60)),
         height:Math.max(400,Math.min(680,(globalThis.window?.innerHeight??850)-110))},
       content:shell,ok:{label:group?"Apply to Party draft":
-        scope==="checkpoint"?"Apply Map Marker overrides":
+        checkpoint?"Apply to "+checkpointDraftTarget+" draft":
         scope==="journey"?"Save for this trip":"Save preset"},
       buttons:scope==="journey"&&onSaveCheckpoint?[{
         action:"checkpoint",label:"Save to "+(checkpointName??"Map Marker"),
@@ -921,6 +1011,19 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const crewCount=Number(response.crewCount??0);
     if(!Number.isInteger(crewCount)||crewCount<0||crewCount>1000)
       throw new Error("Crew count must be a whole number between 0 and 1000.");
+    let crewThresholds=value.crewThresholds;
+    if(scope==="world"||scope==="checkpoint"){
+      const raw=["crewMinimum","crewOptimal","crewExcellent"].map(key=>response[key]);
+      if(raw.some(v=>v!==undefined)){
+        const blank=v=>v===undefined||v===null||String(v).trim()==="";
+        if(raw.every(blank))crewThresholds=inheritedMethod?.crewThresholds;
+        else{
+          if(raw.some(blank))throw Error("Enter all three crew thresholds or leave all blank to inherit.");
+          crewThresholds={minimum:Number(raw[0]),optimal:Number(raw[1]),excellent:Number(raw[2])};
+        }
+      }
+      resolveCrewThresholds({id,crewCount,crewThresholds});
+    }
     const hiredOnlyChoice=["ship-passage","coach-hire"].includes(id);
     const crewWageCpPerDay=hiredOnlyChoice?(value.crewWageCpPerDay??200):
       currencyFromResponse(response,"crewWage");
@@ -956,7 +1059,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
     const next={...value,id,
       name:preset&&(preset.builtIn||scope!=="world")?value.name:String(response.name??"").trim(),
       kind:preset&&(preset.builtIn||scope!=="world")?value.kind:String(response.kind??""),
-      surface:preset&&(preset.builtIn||scope!=="world")?value.surface:String(response.surface??""),
+      surface:value.surface,
       speedMph:id==="walking"?null:atlasPresetSpeedFromDisplay(Number(response.speedDisplay)),
       capacity:id==="walking"?null:rawCapacity,
       costCp:!hiredOnlyChoice&&String(response.costBasis)==="mile"?
@@ -978,6 +1081,39 @@ export class AtlasTransportationSettings extends ApplicationBase {
       overtimeMultiplier:Number(response.overtimeMultiplier),
       continuousEnabled:bool("continuousEnabled"),
       note:scope==="world"&&preset?.builtIn?value.note:String(response.note??"")};
+    if(scope==="world"||scope==="checkpoint"){
+      if(crewThresholds===undefined)delete next.crewThresholds;
+      else next.crewThresholds=crewThresholds;
+    }
+    if(!group&&(["world","checkpoint"].includes(scope)||scope==="journey"&&Boolean(checkpointName))&&next.kind==="vehicle"){
+      const levels=validateHireServiceLevels(value.hireServiceLevels??{});
+      const inherited=validateHireServiceLevels(inheritedMethod?.hireServiceLevels??{});
+      for(const tier of HIRE_SERVICE_LEVELS){
+        const patch={...levels[tier]},parent=inherited[tier]??{};
+        const raw=response["hireLevelRate-"+tier],schedule=response["hireLevelOperation-"+tier];
+        if(raw!==undefined){
+          if(raw===null||String(raw).trim()===""){
+            delete patch.hireCostCp;
+            if(parent.hireCostCp!==undefined)patch.hireCostCp=parent.hireCostCp;
+          }else{
+            const amount=Number(raw)*100;
+            if(!Number.isFinite(amount)||amount<0||amount>1e8)throw Error("Invalid service level fare.");
+            patch.hireCostCp=next.hireBasis==="mile"?atlasCostPerMileFromDisplay(amount):amount;
+          }
+        }
+        if(schedule!==undefined){
+          if(schedule===""){
+            delete patch.operation;
+            if(parent.operation!==undefined)patch.operation=parent.operation;
+          }else patch.operation=schedule;
+        }
+        if(Object.keys(patch).length)levels[tier]=patch;else delete levels[tier];
+      }
+      const cleaned=validateHireServiceLevels(levels);
+      for(const terms of Object.values(cleaned))if(terms.operation)
+        resolveTransportationOperation(next,terms.operation);
+      if(Object.keys(cleaned).length)next.hireServiceLevels=cleaned;else delete next.hireServiceLevels;
+    }
     if((scope==="checkpoint"||scope==="journey"&&checkpointName)&&
         (!Number.isInteger(next.hireQuantity)||next.hireQuantity<0||next.hireQuantity>100))
       throw Error("Available transport quantity must be a whole number between 0 and 100.");
@@ -993,10 +1129,17 @@ export class AtlasTransportationSettings extends ApplicationBase {
       // This editor is the authority: its continuous toggle takes effect
       // without a second Navigation schedule picker. Eligible explicit
       // overtime remains available when continuous is not chosen.
-      const operation=requested===null?null:
+      let operation=requested===null?null:
         requested==="overtime"&&next.overtimeEnabled?"overtime":
         next.kind==="vehicle"&&next.continuousEnabled?"continuous":"normal";
-      const journey={operation};
+      const serviceLevel=journeyServiceLevel===null?null:
+        String(response.atlasJourneyServiceLevel??journeyServiceLevel);
+      if(serviceLevel){
+        const regular=resolveNavigationTravelRules({settings:game.settings,
+          systemId:game.system?.id,actorHoursPerDay:null}).dailyHours??8;
+        operation=resolveHiredServiceLevel(next,serviceLevel,regular).operation;
+      }
+      const journey={operation,...(journeyServiceLevel===null?{}:{serviceLevel:serviceLevel||null})};
       if(response.__atlasSaveScope==="checkpoint"){
         if(typeof onSaveCheckpoint!=="function")
           throw Error("Checkpoint saving is not available for this method.");
@@ -1041,6 +1184,7 @@ export class AtlasTransportationSettings extends ApplicationBase {
     if(!game.user?.isGM||preset.builtIn)throw new Error("Only custom presets can be deleted.");
     const yes=await foundry.applications.api.DialogV2.confirm({
       window:{title:"Delete "+preset.name},modal:true,rejectClose:false,
+      yes:{label:"Delete preset",default:false},no:{label:"Cancel",default:true},
       content:"<p>Remove this custom transportation option from future route planning? "+
         "Previously saved Journey Journals and Scene data will not be changed.</p>"
     });
@@ -1071,18 +1215,36 @@ export class AtlasTransportationSettings extends ApplicationBase {
 /** Opens the one World transportation editor for a non-World scope.
  * Callers own the Save callback; this helper never changes World settings.
  */
+/** Display current eligible riders without exposing internal Actor IDs.
+ * Equal names receive deterministic ordinal labels; option values remain IDs. */
+export function groupRiderOptions(riders,assignedId=""){
+  const sorted=[...riders].sort((a,b)=>a.name.localeCompare(b.name)||a.id.localeCompare(b.id));
+  const counts=new Map(),seen=new Map();
+  for(const rider of sorted)counts.set(rider.name,(counts.get(rider.name)??0)+1);
+  const options=[["","None — shared mount"]];
+  for(const rider of sorted){
+    const ordinal=(seen.get(rider.name)??0)+1;
+    seen.set(rider.name,ordinal);
+    options.push([rider.id,counts.get(rider.name)>1?
+      rider.name+" ("+ordinal+")":rider.name]);
+  }
+  if(assignedId&&!sorted.some(rider=>rider.id===assignedId))
+    options.push([assignedId,"Unavailable party member — choose another rider"]);
+  return options;
+}
+
 export async function openTransportationMethodEditor({method,scope,onSave,onReset=null,
-  onSaveCheckpoint=null,checkpointName=null,journeyOperation=null,
+  onSaveCheckpoint=null,checkpointName=null,journeyOperation=null,inheritedMethod=null,journeyServiceLevel=null,
   groupAssignment=null,profiles=[],groupActorName="",groupKind="vehicle",
-  groupRiders=[]}={}){
+  groupRiders=[],checkpointDraftTarget="Map Marker",checkpointOverrides={}}={}){
   if((!method&&scope!=="group")||!["checkpoint","journey","group"].includes(scope)||
       typeof onSave!=="function"||
       (onSaveCheckpoint!==null&&typeof onSaveCheckpoint!=="function"))
     throw Error("Invalid transportation editor context.");
   const app=new AtlasTransportationSettings();
   return app._edit(method,method?.surface??"land",{scope,onSave,onReset,
-    onSaveCheckpoint,checkpointName,journeyOperation,groupAssignment,profiles,
-    groupActorName,groupKind,groupRiders});
+    onSaveCheckpoint,checkpointName,journeyOperation,inheritedMethod,journeyServiceLevel,groupAssignment,profiles,
+    groupActorName,groupKind,groupRiders,checkpointDraftTarget,checkpointOverrides});
 }
 
 

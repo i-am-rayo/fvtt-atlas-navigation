@@ -71,3 +71,26 @@ test("transport approval tiles use a two-column narrow container and four equal 
   assert.match(css,/@container[^}]*min-width:\s*40rem[^}]*\.atlas-transport-approval-metrics\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/s);
   assert.match(css,/\.atlas-transport-approval\s*\{[^}]*container-type:\s*inline-size/s);
 });
+
+test("owned vessel review leads with exact counts and expandable native traveler detail",()=>{
+  const previous=globalThis.document;
+  try{
+    globalThis.document=fakeDocument();
+    const names="Alba, Brent, Cassian, Dara, Eira";
+    const content=renderNavigationTransportApproval({
+      overview:"5 travelers · 4 seats · 4 mounts · 1 vessel",
+      rows:[{method:"Warship",travelers:names,travelerCount:5,units:"1",cost:"84 PP"}],
+      metrics:[["Total travelers","5"],["Group travel speed","2 mph"],
+        ["Estimated moving time","1d"],["Estimated transportation cost","84 PP"]],
+      fareRows:[["Vehicle upkeep","84 PP"]]});
+    assert.ok(walk(content,n=>n.className==="atlas-transport-approval-overview")
+      .some(n=>n.textContent==="5 travelers · 4 seats · 4 mounts · 1 vessel"));
+    const details=walk(content,n=>n.tag==="details");
+    assert.equal(details.length,1);
+    assert.ok(!details[0].open,"names initially collapsed");
+    assert.equal(details[0].children[0].tag,"summary");
+    assert.equal(details[0].children[0].textContent,"5 travelers");
+    assert.match(text(details[0]),/Alba, Brent, Cassian, Dara, Eira/);
+    assert.match(text(content),/Vehicle upkeep 84 PP/);
+  }finally{globalThis.document=previous;}
+});

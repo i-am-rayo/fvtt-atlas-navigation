@@ -11,6 +11,7 @@ export function createTransportNumberSlider(name,value,{
   const range=el("input");range.type="range";range.min=String(min);
   range.max=String(Math.max(min,max));range.step=String(step);
   range.value=String(Math.min(max,Math.max(min,Number(value)||min)));
+  range.defaultValue=range.value;
   range.setAttribute("data-atlas-range-for",name);
   range.setAttribute("aria-label",label);range.style.cssText="flex:1 1 40%;min-width:3.5rem;";
   const number=el("input");number.type="number";number.name=name;

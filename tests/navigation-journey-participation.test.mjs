@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {planOwnedVehicleService} from "../scripts/navigation-group-transport.js";
 import {createJourneyParticipation,validateJourneyParticipation,priorJourneySelection}
   from "../scripts/navigation-journey-participation.js";
 import {createJourneyRecord,resumeJourneyRecord,validateJourneyRecord,formatJourneyJournalHTML}
@@ -88,4 +89,72 @@ test("interrupted leg cannot change approved manifest; finished next leg can",()
   assert.deepEqual(next.legs[0].participation,selection,
     "existing leg history cannot be overwritten by the next draft");
   assert.deepEqual(next.legs[1].participation,replaced);
+});
+
+const vesselMethod={id:"warship",name:"Warship",kind:"vehicle",surface:"water",
+  speedMph:5,capacity:2,crewCount:60,costCp:0,costBasis:"none",costApplies:"unit",
+  includeCrewWages:true,crewWageCpPerDay:200,crewWageBasis:"day"};
+const staffedRoster={travelers:2,members:[
+  {actorId:"pc",actorName:"Captain",actorType:"character",role:"passenger",quantity:1,needsSeat:true,enabled:true},
+  {actorId:"guest",actorName:"Guest",actorType:"character",role:"passenger",quantity:1,needsSeat:true,enabled:true},
+  {actorId:"sailor",actorName:"Sailor",actorType:"npc",role:"crew",quantity:1,enabled:true},
+  {actorId:"mate",actorName:"Mate",actorType:"npc",role:"unassigned",quantity:1,enabled:true},
+  {actorId:"idle",actorName:"Idle",actorType:"npc",role:"crew",quantity:1,enabled:true},
+  {actorId:"ship",actorName:"Warship",actorType:"vehicle",role:"vehicle",quantity:1,capacity:2,
+    surface:"water",profileId:"warship",enabled:true,crewRoster:[{unitIndex:1,named:[
+      {actorId:"pc",duty:"Captain"},{actorId:"sailor"},{actorId:"mate"}],hired:10}]}
+]};
+function staffedApproval(roster,selectedIds){
+  const draft=planOwnedVehicleService({...roster,selectedTravelerIds:selectedIds},vesselMethod,{
+    operatedUnits:[{actorId:"ship",unitIndex:1}],movingHours:8,distanceMi:40,regularHours:8}).approval;
+  return {...draft,belowMinimumAcknowledged:draft.belowMinimum};
+}
+test("owned leg participation includes named crew once without passenger seats and restores passenger selection",()=>{
+  const before=structuredClone(staffedRoster);
+  const approved=staffedApproval(staffedRoster,["pc","guest"]);
+  const opts={methodKey:"owned|warship",ownedApproval:approved};
+  const manifest=createJourneyParticipation(staffedRoster,["pc","guest"],opts);
+  assert.deepEqual(manifest.people.map(p=>[p.actorId,p.traveling,p.seats]).sort(),[
+    ["guest",true,1],["mate",true,0],["pc",true,0],["sailor",true,0]]);
+  assert.deepEqual(validateJourneyParticipation(manifest),manifest);
+  const record={legs:[{participation:manifest,transport:{ownedApproval:approved}}]};
+  assert.deepEqual(priorJourneySelection(record,staffedRoster).sort(),["guest","pc"]);
+  assert.throws(()=>priorJourneySelection(record,{...staffedRoster,
+    members:staffedRoster.members.filter(m=>m.actorId!=="sailor")}),/roster changed/i);
+  assert.throws(()=>createJourneyParticipation(staffedRoster,["guest"],opts),/crew/i);
+  assert.throws(()=>createJourneyParticipation(staffedRoster,["pc","guest"],{
+    ...opts,methodKey:"owned|walking"}),/method/i);
+  assert.throws(()=>createJourneyParticipation(staffedRoster,["pc","guest"],{
+    ...opts,ownedApproval:{...approved,belowMinimumAcknowledged:false}}),/acknowledg/i);
+  assert.deepEqual(staffedRoster,before);
+});
+test("an owned leg can include only eligible non-passenger named crew",()=>{
+  const crewOnly={travelers:0,members:staffedRoster.members.filter(m=>!["pc","guest"].includes(m.actorId))
+    .map(m=>m.actorId==="ship"?{...m,crewRoster:[{unitIndex:1,named:[{actorId:"sailor"}],hired:0}]}:m)};
+  const approved=staffedApproval(crewOnly,[]);
+  const manifest=createJourneyParticipation(crewOnly,[],{methodKey:"owned|warship",ownedApproval:approved});
+  assert.deepEqual(manifest.people.map(p=>[p.actorId,p.traveling,p.seats]),[["sailor",true,0]]);
+  assert.deepEqual(priorJourneySelection({legs:[{participation:manifest,transport:{ownedApproval:approved}}]},crewOnly),[]);
+  assert.throws(()=>createJourneyParticipation(crewOnly,[],{methodKey:"owned|warship"}),/valid unique|at least one/i);
+});
+
+test("unfinished owned recovery requires its exact available units and historical manifest",()=>{
+  const approved=staffedApproval(staffedRoster,["pc","guest"]);
+  const manifest=createJourneyParticipation(staffedRoster,["pc","guest"],{
+    methodKey:"owned|warship",ownedApproval:approved});
+  const record={legs:[{completedPercent:25,participation:manifest,transport:{ownedApproval:approved}}]};
+  for(const members of [
+    staffedRoster.members.filter(m=>m.actorId!=="ship"),
+    staffedRoster.members.map(m=>m.actorId==="ship"?{...m,enabled:false}:m),
+    staffedRoster.members.map(m=>m.actorId==="ship"?{...m,quantity:0}:m)
+  ]){
+    assert.throws(()=>priorJourneySelection(record,{...staffedRoster,members}),/approved owned operating units.*no longer available/i);
+  }
+  const absent=structuredClone(record);delete absent.legs[0].participation;
+  assert.throws(()=>priorJourneySelection(absent,staffedRoster),/approved owned vehicle traveler manifest.*unavailable/i);
+  const completed=structuredClone(record);completed.legs[0].completedPercent=100;
+  assert.deepEqual(priorJourneySelection(completed,{...staffedRoster,
+    members:staffedRoster.members.filter(m=>m.actorId!=="ship")}).sort(),["guest","pc"],
+    "the next unapproved leg need not retain a previously completed vessel");
+  assert.deepEqual(priorJourneySelection(record,staffedRoster).sort(),["guest","pc"]);
 });

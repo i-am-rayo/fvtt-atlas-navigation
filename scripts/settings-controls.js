@@ -43,7 +43,7 @@ export function createTravelPresetSelect({selectedId=null,name="atlasTravelPrese
   return createSettingsGroupedSelect([
     {label:null,options:[["",noneLabel]]},
     ...[...groups].map(([label,options])=>({label,options}))
-  ],{name,selectedId});
+  ],{name,selectedId,alphabetize:false});
 }
 
 /** Whole-World checkpoint preset catalog, not only the current checkpoint type. */

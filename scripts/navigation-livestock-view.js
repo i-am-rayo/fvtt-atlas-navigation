@@ -59,6 +59,7 @@ export function renderJourneyLivestockBoarding({resources=[],decisions={},
     quantity.style.cssText="width:3.6rem;min-width:0;";
     quantity.setAttribute("aria-label","Number of "+animal.name+" "+action+
       " (0 to "+animal.quantity+")");
+    quantity.setAttribute("data-atlas-travel-focus","mount-quantity:"+animal.actorId);
     quantity.title="Set a partial quantity; zero means staying behind";
     quantity.addEventListener("change",()=>{
       const value=Number(quantity.value);
@@ -69,6 +70,7 @@ export function renderJourneyLivestockBoarding({resources=[],decisions={},
     const move=el("button","↔");move.type="button";move.disabled=disabled;
     move.title="Move "+animal.name+(number>0?" to stay behind":" to "+action);
     move.setAttribute("aria-label",move.title);
+    move.setAttribute("data-atlas-travel-focus","mount-move:"+animal.actorId);
     move.style.cssText="min-width:1.6rem;padding:.1rem .25rem;";
     move.addEventListener("click",()=>setCount(animal.actorId,
       number>0?0:animal.quantity));

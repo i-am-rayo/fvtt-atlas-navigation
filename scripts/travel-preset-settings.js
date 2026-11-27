@@ -410,9 +410,11 @@ export class AtlasTravelPresetSettings extends foundry.applications.api.Applicat
         (uses.length > 3 ? " and " + (uses.length - 3) + " more." : ".") +
         " Reassign those roads/Regions before deleting it.");
     }
+    const content=document.createElement("div");
+    content.textContent="Delete " + preset.name + "? Existing native Regions and Behaviors will not be touched.";
     const approved = await foundry.applications.api.DialogV2.confirm({
-      window: { title: "Delete Atlas Travel Preset" },
-      content: "Delete " + preset.name + "? Existing native Regions and Behaviors will not be touched.",
+      window: { title: "Delete Atlas Travel Preset" },content,
+      yes:{label:"Delete preset",default:false},no:{label:"Cancel",default:true},
       rejectClose: false, modal: true
     });
     if (!approved) return;

@@ -94,3 +94,61 @@ export function mixedTransportFareBreakdown(methods,currencyConfig){
   return {rows,total:dndCurrencyBreakdown(
     rows.reduce((sum,row)=>sum+row.payableCopper,0),currencyConfig)};
 }
+
+/** Adapt legacy cargo-only hires to the same display-only rounding contract. */
+export function walkingCargoFareBreakdown(hires,currencyConfig){
+  return mixedTransportFareBreakdown(hires.map(h=>({
+    key:h.methodId,methodName:h.methodName,role:"cargo",units:h.units,
+    passengers:0,estimatedCostCp:h.estimatedCostCp
+  })),currencyConfig);
+}
+
+/** Use the same native denominations as the total when they represent the
+ * exact component. Fractional or otherwise unrepresentable amounts stay in
+ * CP; only the method total may be rounded. */
+export function formatExactTransportationFare(copper,currencyConfig){
+  if(Number.isSafeInteger(copper)&&copper>=0){
+    try{
+      const coins=dndCurrencyBreakdown(copper,currencyConfig);
+      if(coins.payableCopper===copper)return coins.label;
+    }catch{/* Keep the exact component visible if denominations cannot represent it. */}
+  }
+  return copper+" CP";
+}
+/** Display captured rates; never derive a rate from a subtotal or reprice history. */
+function describePaidCrewRates(units,currencyConfig){
+  if(!Array.isArray(units)||!units.length)return "";
+  const groups=new Map();
+  for(const unit of units){
+    const {paidCrew,crewWageCpPerDay:rate,crewWageBasis:basis}=unit;
+    if(!Number.isSafeInteger(paidCrew)||paidCrew<0||
+      !Number.isFinite(rate)||rate<0||!["day","trip","mile"].includes(basis))return "";
+    if(!paidCrew)continue;
+    const key=JSON.stringify([rate,basis]);
+    groups.set(key,(groups.get(key)??0)+paidCrew);
+  }
+  return groups.size?[...groups].map(([key,count])=>{
+    const [rate,basis]=JSON.parse(key);
+    return count+" paid × "+formatExactTransportationFare(rate,currencyConfig)+"/"+basis;
+  }).join("; "):"0 paid";
+}
+export function describeTransportationFareRows(quote,{owned=false,methodName=null,livestock=null,currencyConfig,formatCoins=false,crewUnits=null,crewMethod=null}={}){
+  if(!quote)return [];
+  const rates=formatCoins?describePaidCrewRates(crewUnits??(owned&&Array.isArray(quote.units)?quote.units:
+    !owned&&crewMethod&&Number.isSafeInteger(quote.paidCrew)?[{
+      paidCrew:quote.paidCrew,crewWageCpPerDay:crewMethod.crewWageCpPerDay??200,
+      crewWageBasis:crewMethod.crewWageBasis??"day"}]:null),currencyConfig):"";
+  const rows=[
+    [owned?"Vehicle upkeep":"Base transportation",quote.baseCp],
+    ["Paid crew wages"+(rates?" ("+rates+")":""),quote.crewWagesCp],
+    ...(!owned?[["Overtime fare",quote.overtimeFareCp]]:[]),
+    ["Overtime crew wages",quote.overtimeCrewCp],
+    ...(owned&&livestock?livestock.resources.some(item=>item.aboard>0)?
+      [["Physical mount boarding",livestock.estimatedFareCp]]:[]:
+      quote.livestockCount>0||quote.livestockFareCp>0?
+        [["Physical mount boarding",quote.livestockFareCp]]:[]),
+    ...(quote.adjustmentCp?[["Fare adjustment",quote.adjustmentCp]]:[])
+  ];
+  return rows.filter(([,amount])=>Number.isFinite(amount)).map(([label,amount])=>
+    [methodName?methodName+" — "+label:label,formatCoins?formatExactTransportationFare(amount,currencyConfig):amount+" CP"]);
+}

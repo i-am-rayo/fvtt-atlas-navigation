@@ -177,13 +177,49 @@ const validCapacity=value=>value===null||(Number.isInteger(value)&&value>=1&&val
 const validCostApplies=value=>value==="unit"||value==="passenger";
 const validCrewCount=value=>Number.isInteger(value)&&value>=0&&value<=1000;
 const validCrewWage=value=>money(value);
+const validCrewThresholds=(thresholds,full)=>
+  thresholds!==null&&typeof thresholds==="object"&&!Array.isArray(thresholds)&&
+  Object.keys(thresholds).length===3&&
+  ["minimum","optimal","excellent"].every(key=>own(thresholds,key)&&validCrewCount(thresholds[key]))&&
+  thresholds.minimum<=thresholds.optimal&&thresholds.optimal<=thresholds.excellent&&
+  thresholds.excellent<=full;
+
+function referenceCrewCount(p){
+  return p.crewCount??referenceOccupancy[p.id]?.crewCount??0;
+}
+
+/** Advisory thresholds; full remains the existing canonical crew count. */
+export function resolveCrewThresholds(method){
+  const full=referenceCrewCount(method);
+  if(!validCrewCount(full))throw new Error("Invalid crew count.");
+  const thresholds=method.crewThresholds===undefined?
+    {minimum:Math.ceil(full/4),optimal:Math.ceil(full/2),excellent:Math.ceil(full*3/4)}:
+    method.crewThresholds;
+  if(!validCrewThresholds(thresholds,full))throw new Error("Invalid crew thresholds.");
+  return Object.freeze({...thresholds,full});
+}
+
+export function classifyCrewStaffing(method,count){
+  if(!Number.isSafeInteger(count)||count<0)throw new Error("Invalid staffed crew count.");
+  const {minimum,optimal,excellent,full}=resolveCrewThresholds(method);
+  if(count>full)return "over-capacity";
+  if(full===0)return "not-required";
+  if(count>=full)return "full";
+  if(count>=excellent)return "excellent";
+  if(count>=optimal)return "optimal";
+  if(count>=minimum)return "minimum";
+  return "below-minimum";
+}
+
 const validCrewFields=p=>
   (p.crewCount===undefined||validCrewCount(p.crewCount))&&
+  (p.crewThresholds===undefined||validCrewThresholds(p.crewThresholds,referenceCrewCount(p)))&&
   (p.crewWageCpPerDay===undefined||validCrewWage(p.crewWageCpPerDay))&&
   (p.crewWageBasis===undefined||TRANSPORT_CREW_WAGE_BASES.includes(p.crewWageBasis))&&
   (p.includeCrewWages===undefined||typeof p.includeCrewWages==="boolean");
 const crewFields=p=>({
   ...(p.crewCount===undefined?{}:{crewCount:p.crewCount}),
+  ...(p.crewThresholds===undefined?{}:{crewThresholds:{...p.crewThresholds}}),
   ...(p.crewWageCpPerDay===undefined?{}:{crewWageCpPerDay:p.crewWageCpPerDay}),
   ...(p.crewWageBasis===undefined?{}:{crewWageBasis:p.crewWageBasis}),
   ...(p.includeCrewWages===undefined?{}:{includeCrewWages:p.includeCrewWages})
@@ -204,8 +240,30 @@ const validLivestock=p=>
     Number.isInteger(p.livestockCapacity)&&p.livestockCapacity>=0&&p.livestockCapacity<=1000)&&
   (p.livestockFareCp===undefined||p.livestockFareCp===null||money(p.livestockFareCp))&&
   (p.livestockFareBasis===undefined||TRANSPORT_HIRE_BASES.includes(p.livestockFareBasis));
+export const HIRE_SERVICE_LEVELS=Object.freeze(["minimum","optimal","excellent","full"]);
+
+/** Optional per-tier overrides; unspecified fields retain the ordinary fare
+ * and capability-dependent schedule. No availability is created here. */
+export function validateHireServiceLevels(value){
+  if(!value||typeof value!=="object"||Array.isArray(value))
+    throw Error("Invalid hired service levels.");
+  const result={};
+  for(const [tier,patch] of Object.entries(value)){
+    if(!HIRE_SERVICE_LEVELS.includes(tier)||!patch||typeof patch!=="object"||
+        Array.isArray(patch)||Object.keys(patch).some(key=>!["hireCostCp","operation"].includes(key))||
+        (own(patch,"hireCostCp")&&!money(patch.hireCostCp))||
+        (own(patch,"operation")&&!["normal","overtime","continuous"].includes(patch.operation)))
+      throw Error("Invalid hired service level.");
+    if(Object.keys(patch).length)result[tier]={...patch};
+  }
+  return result;
+}
+const validHireServiceLevels=value=>{
+  try{validateHireServiceLevels(value);return true;}catch{return false;}
+};
 const validServiceFields=(p,kind,surface)=>
   validLivestock(p)&&
+  (p.hireServiceLevels===undefined||kind==="vehicle"&&validHireServiceLevels(p.hireServiceLevels))&&
   (kind==="vehicle"&&["land","water","air"].includes(surface)||
     p.livestockCapacity==null&&p.livestockFareCp==null&&
     p.livestockFarePercent==null&&
@@ -227,10 +285,14 @@ const serviceFields=p=>Object.fromEntries([
   "hireEnabled","hireCostCp","hireBasis","hireApplies","hireCrewIncluded",
   "overtimeEnabled","overtimeMultiplier","overtimeExtraHours","continuousEnabled",
   "livestockCapacity","livestockFareCp","livestockFareBasis","livestockFarePercent"
-].filter(key=>p[key]!==undefined).map(key=>[key,p[key]]));
+].filter(key=>p[key]!==undefined).map(key=>[key,p[key]]).concat(p.hireServiceLevels===undefined?[]:
+  [["hireServiceLevels",validateHireServiceLevels(p.hireServiceLevels)]]));
 const projectedServices=p=>({
   hireEnabled:p.hireEnabled??referenceHire[p.id]?.hireEnabled??false,
-  hireCostCp:p.hireCostCp??referenceHire[p.id]?.hireCostCp??0,
+  // Missing hire rates use an editable Atlas estimate: 1% of purchase GP
+  // per operating day, expressed in CP. Explicit zero and availability win.
+  hireCostCp:p.hireCostCp??referenceHire[p.id]?.hireCostCp??
+    (p.kind==="foot"?0:p.id==="mounted"?75:p.purchaseGp??0),
   hireBasis:p.hireBasis??referenceHire[p.id]?.hireBasis??"day",
   hireApplies:p.hireApplies??referenceHire[p.id]?.hireApplies??"unit",
   hireCrewIncluded:p.hireCrewIncluded??true,
@@ -271,7 +333,7 @@ export function validateTransportationCatalog(input){
           !(patch.purchaseGp===null||money(patch.purchaseGp))||
           (patch.capacity!==undefined&&!validCapacity(patch.capacity))||
           (patch.costApplies!==undefined&&!validCostApplies(patch.costApplies))||
-          !validCrewFields(patch)||
+          !validCrewFields({...patch,id})||
           !validServiceFields(patch,dnd2024.find(p=>p.id===id)?.kind,
             dnd2024.find(p=>p.id===id)?.surface))
         throw new Error("Invalid transportation override for "+id+".");

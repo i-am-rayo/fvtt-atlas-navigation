@@ -5,13 +5,14 @@ const el=(tag,text)=>{const n=document.createElement(tag);
   if(text!==undefined)n.textContent=String(text);return n;};
 const css=(node,style)=>{node.style.cssText=style;return node;};
 import {travelMethodIconClass} from "./navigation-selection-view.js";
+import {compareAtlasLabels} from "./settings-select.js";
 
 /** A single method uses checkboxes; multiple methods expose drag destinations
  * plus a compact per-person keyboard alternative. All names appear once.
  */
 export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
   methods=[],assignments={},units={},disabled=false,previewOnly=false,
-  transferColumns=false,mountBoard=null,onInclude,onAssign,onUnits}={}){
+  transferColumns=false,mountBoard=null,ownedSummary=null,onInclude,onAssign,onUnits}={}){
   const root=css(el("section"),"display:grid;gap:.55rem;min-width:0;");
   root.className="atlas-navigation-traveler-deck";
   const selected=new Set(selectedIds);
@@ -24,6 +25,7 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
     " travelers · "+active.reduce((n,t)=>n+t.seats,0)+" seats · Unapproved draft");
   status.style.cssText="opacity:.8;";
   heading.append(title,status);root.append(heading);
+  if(ownedSummary)root.append(css(el("small",ownedSummary),"opacity:.85;line-height:1.4;"));
 
   if(!multiple){
     const grid=css(el("div"),"display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.35rem;");
@@ -32,9 +34,11 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
         "padding:.45rem .6rem;border:1px solid var(--color-border-light-tertiary,#555);"+
         "border-radius:6px;cursor:pointer;min-width:0;");
       const check=el("input");check.type="checkbox";check.checked=selected.has(t.id);
-      check.disabled=disabled;check.setAttribute?.("aria-label","Travel with "+t.name);
-      check.addEventListener("change",()=>onInclude?.(t.id,check.checked));
-      const name=el("span",t.name+(t.seats===0?" · no seat":""));
+      check.disabled=disabled||Boolean(t.fixed);
+      check.setAttribute?.("aria-label","Travel with "+t.name+(t.fixed?" (crew assigned to operating unit)":""));
+      check.setAttribute?.("data-atlas-travel-focus","traveler-check:"+t.id);
+      check.addEventListener("change",()=>{if(!check.disabled)onInclude?.(t.id,check.checked);});
+      const name=el("span",t.name+(t.crew?" · Crew · "+t.crew:t.seats===0?" · no seat":""));
       name.style.cssText="min-width:0;overflow-wrap:anywhere;font-size:.88em;";
       label.append(check,name);grid.append(label);
     }
@@ -45,38 +49,63 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
     const keys=methods.map(m=>m.key);
     const card=t=>{
       const pill=css(el("div"),"display:flex;align-items:center;gap:.35rem;"+
-        "padding:.4rem .45rem;border-radius:5px;"+
+        "flex-wrap:wrap;padding:.4rem .45rem;border-radius:5px;"+
         "border:1px solid var(--color-border-light-tertiary,#555);"+
         "background:var(--color-bg-option,#23212b);min-width:0;");
-      pill.draggable=!disabled;
-      pill.setAttribute?.("aria-label",t.name+", draggable traveler");
+      pill.draggable=!disabled&&!t.fixed;
+      pill.setAttribute?.("aria-label",t.name+(t.fixed?", crew assigned to operating unit":", draggable traveler"));
       pill.addEventListener("dragstart",event=>{
-        if(disabled){event.preventDefault();return;}
+        if(disabled||t.fixed){event.preventDefault();return;}
         event.dataTransfer?.setData("text/plain",t.id);
         if(event.dataTransfer)event.dataTransfer.effectAllowed="move";
       });
-      const name=css(el("span",t.name),"flex:1;min-width:0;overflow-wrap:anywhere;font-size:.83em;");
+      const name=css(el("span",t.name+(t.crew?" · Crew · "+t.crew:"")),"flex:1;min-width:0;overflow-wrap:anywhere;font-size:.83em;");
       const move=el("button","↔");
-      move.type="button";move.disabled=disabled;
+      move.type="button";move.disabled=disabled||Boolean(t.fixed);
       move.title="Move "+t.name;
       move.setAttribute?.("aria-label","Move "+t.name+" to a travel method");
+      move.setAttribute?.("aria-expanded","false");
+      const focusKey="traveler-move:"+t.id;
+      move.setAttribute?.("data-atlas-travel-focus",focusKey);
       move.style.cssText="min-width:1.6rem;padding:.1rem .25rem;";
       const chooser=el("select");chooser.hidden=true;
       chooser.setAttribute?.("aria-label","Destination method for "+t.name);
-      for(const method of methods){
+      chooser.setAttribute?.("data-atlas-travel-focus",focusKey);
+      chooser.style.cssText="max-width:100%;min-width:0;flex-basis:100%;";
+      for(const method of [...methods].sort((a,b)=>
+        compareAtlasLabels(a.name,b.name)||compareAtlasLabels(a.key,b.key))){
         const opt=el("option",method.name);opt.value=method.key;chooser.append(opt);
       }
       const stay=el("option","Not traveling");stay.value="";chooser.append(stay);
-      chooser.value=selected.has(t.id)?assignments[t.id]??keys[0]:"";
-      chooser.disabled=disabled;
-      chooser.addEventListener("change",()=>{
+      let current=selected.has(t.id)?assignments[t.id]??keys[0]:"";
+      chooser.value=current;
+      chooser.disabled=move.disabled;
+      const closeChooser=()=>{
         chooser.hidden=true;
-        if(chooser.value)onAssign?.(t.id,chooser.value);
+        move.setAttribute?.("aria-expanded","false");
+        move.focus?.({preventScroll:true});
+      };
+      chooser.addEventListener("change",()=>{
+        if(chooser.disabled||chooser.hidden)return;
+        const value=chooser.value;
+        if(value!==""&&!keys.includes(value)){
+          chooser.value=current;closeChooser();return;
+        }
+        current=value;closeChooser();
+        if(value)onAssign?.(t.id,value);
         else onInclude?.(t.id,false);
       });
+      chooser.addEventListener("keydown",event=>{
+        if(event.key!=="Escape"||chooser.hidden)return;
+        event.preventDefault();event.stopPropagation();
+        chooser.value=current;closeChooser();
+      });
       move.addEventListener("click",()=>{
-        chooser.hidden=!chooser.hidden;
-        if(!chooser.hidden)chooser.focus?.();
+        if(move.disabled)return;
+        if(!chooser.hidden){chooser.value=current;closeChooser();return;}
+        chooser.hidden=false;
+        move.setAttribute?.("aria-expanded","true");
+        chooser.focus?.();
       });
       pill.append(name,move,chooser);
       return pill;
@@ -115,7 +144,8 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
         input.value=String(units[method.key]??method.minimumUnits??1);
         input.disabled=disabled;input.style.cssText="width:3.5rem;";
         input.setAttribute?.("aria-label","Units of "+method.name);
-        input.addEventListener("change",()=>onUnits?.(method.key,Number(input.value)));
+        input.setAttribute?.("data-atlas-travel-focus","units:"+method.key);
+        input.addEventListener("change",()=>{if(!input.disabled)onUnits?.(method.key,Number(input.value));});
         quantity.append(input);column.append(quantity);
       }
       const landing=css(el("div"),"display:grid;gap:.25rem;min-height:1.9rem;");
@@ -130,7 +160,7 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
       column.addEventListener("drop",event=>{
         event.preventDefault();
         const t=event.dataTransfer?.getData("text/plain");
-        if(!disabled&&names.has(t))onAssign?.(t,method.key);
+        if(!disabled&&names.has(t)&&!names.get(t).fixed)onAssign?.(t,method.key);
       });
       column.append(landing);board.append(column);
     }
@@ -157,7 +187,7 @@ export function renderNavigationTravelRoster({travelers=[],selectedIds=[],
     stay.addEventListener("drop",event=>{
       event.preventDefault();
       const id=event.dataTransfer?.getData("text/plain");
-      if(!disabled&&names.has(id)&&selected.has(id))onInclude?.(id,false);
+      if(!disabled&&names.has(id)&&!names.get(id).fixed&&selected.has(id))onInclude?.(id,false);
     });
     stay.append(waitingLanding);board.append(stay);
     root.append(board);
@@ -194,7 +224,8 @@ export function renderNavigationPaceChoice({methods=[],selected=null,unit="mph",
       "border-radius:6px;padding:.35rem .5rem;cursor:pointer;");
     const radio=el("input");radio.type="radio";radio.name="atlas-travel-shared-pace";
     radio.checked=checked;radio.disabled=disabled;
-    radio.addEventListener("change",()=>{if(radio.checked)onPace?.(value);});
+    radio.setAttribute?.("data-atlas-travel-focus","pace:"+(value??"recommended"));
+    radio.addEventListener("change",()=>{if(!radio.disabled&&radio.checked)onPace?.(value);});
     label.append(radio,el("span",name));choices.append(label);
   };
   const display=n=>n.toFixed(2)+" "+unit;
@@ -206,13 +237,15 @@ export function renderNavigationPaceChoice({methods=[],selected=null,unit="mph",
   const custom=css(el("label"),"display:flex;gap:.3rem;align-items:center;");
   const choose=el("input");choose.type="radio";choose.name="atlas-travel-shared-pace";
   choose.checked=customSelected;choose.disabled=disabled;
+  choose.setAttribute?.("data-atlas-travel-focus","pace:custom");
   const field=el("input");field.type="number";field.step="any";field.min="0.01";
   field.value=customSelected?String(selected):"";
   field.disabled=disabled;field.style.cssText="width:5.7rem;";
   field.setAttribute?.("aria-label","Custom journey speed in "+unit);
-  field.addEventListener("change",()=>onPace?.(Number(field.value)));
+  field.setAttribute?.("data-atlas-travel-focus","pace:custom-value");
+  field.addEventListener("change",()=>{if(!field.disabled)onPace?.(Number(field.value));});
   choose.addEventListener("change",()=>{
-    if(choose.checked)onPace?.(Number(field.value)||slowest);
+    if(!choose.disabled&&choose.checked)onPace?.(Number(field.value)||slowest);
   });
   custom.append(choose,el("span","Custom"),field,el("span",unit));
   choices.append(custom);root.append(choices);

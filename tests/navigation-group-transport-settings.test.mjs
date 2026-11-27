@@ -27,6 +27,9 @@ class FakeElement {
     this.parent.children.splice(i+1,0,child);child.parent=this;
   }
   replaceChildren(...children){this.children=[...children];}
+  querySelectorAll(selector){
+    return selector==="input"?flatten(this).filter(n=>n.tagName==="INPUT"):[];
+  }
   querySelector(selector){
     if(selector==="h3")return this.children.find(c=>c.tagName==="H3")??null;
     if(selector===".atlas-transport-button")
@@ -130,6 +133,110 @@ test("Group editor shows compact native-Actor transportation by travel surface",
     assert.deepEqual(ctx.changes,[],"opening Group editor never changes World or native Group");
   }finally{ctx.restore();}
 });
+test("owned transport summary shows known capacity, native seats, and draft shortfalls",async()=>{
+  const ctx=setup();
+  try{
+    for(let i=2;i<=4;i++)ctx.group.system.members.push({actor:{
+      id:"pc"+i,name:"PC "+i,type:"character",system:{}}});
+    ctx.group.system.members.push({actor:{id:"nyx",name:"Nyx",type:"npc",system:{}}});
+    ctx.setSaved({version:7,groups:{group1:{members:{
+      camel1:{role:"mount",quantity:4,capacity:1,surface:"land",profileId:"camel"},
+      nyx:{role:"passenger",quantity:1,capacity:null,surface:"land",needsSeat:true}
+    }}}});
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);
+    const root=await app._renderHTML(),nodes=flatten(root);
+    const summary=nodes.find(n=>n.className==="atlas-group-transport-capacity");
+    assert.ok(summary,"accessible capacity summary exists");
+    const read=()=>flatten(summary).map(n=>n.textContent??"").join(" ");
+    assert.match(read(),/Land: 5 seats needed \/ 4 available.*1 seat short/);
+    assert.match(read(),/Water: 5 seats needed \/ 60 available/);
+    const ship=nodes.find(n=>n.className==="atlas-group-transport-resource"&&
+      n.children[0]?.children[0]?.textContent==="Warship ★ Primary vehicle");
+    assert.match(flatten(ship).map(n=>n.textContent).join(" "),
+      /Seats\/unit: 60 \(Native vehicle\)/);
+    assert.match(ship.parentElement.style.cssText,/align-content:start/,
+      "one-row surface must not distribute its content across the full viewport");
+    const seat=nodes.find(n=>n.name==="needs-seat-nyx");
+    seat.checked=false;seat.events.change[0]();
+    assert.match(read(),/Land: 4 seats needed \/ 4 available/);
+    assert.doesNotMatch(read(),/Land:.*1 seat short/);
+    assert.match(read(),/Draft/);
+    seat.checked=true;seat.events.change[0]();
+    assert.match(read(),/Land: 5 seats needed \/ 4 available.*1 seat short/);
+    assert.equal(ctx.changes.length,0,"capacity presentation is a read-only draft projection");
+  }finally{ctx.restore();}
+});
+
+test("owned transport cards retain reserved-rider semantics and mark effective override sources",async()=>{
+  const ctx=setup();
+  try{
+    const extra={id:"pc2",name:"Mali",type:"character",system:{}};
+    ctx.group.system.members.push({actor:extra});
+    ctx.setSaved({version:7,groups:{group1:{members:{
+      camel1:{role:"mount",quantity:1,capacity:3,surface:"land",profileId:"camel",
+        assignedTo:"pc1",speedMphOverride:4,costCpOverride:250,costBasisOverride:"day",
+        costAppliesOverride:"unit"}
+    }}}});
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);
+    const root=await app._renderHTML(),nodes=flatten(root);
+    const summary=nodes.find(n=>n.className==="atlas-group-transport-capacity");
+    assert.match(flatten(summary).map(n=>n.textContent).join(" "),
+      /Land: 2 seats needed \/ 1 available.*1 seat short/);
+    const card=nodes.find(n=>n.className==="atlas-group-transport-resource"&&
+      n.children[0]?.children[0]?.textContent==="Camel");
+    const read=()=>flatten(card).map(n=>n.textContent).join(" ");
+    assert.match(read(),/Seats\/unit: 3 \(Group override\)/);
+    assert.match(read(),/Speed: 4 mph \(Group override\)/);
+    assert.match(read(),/Upkeep: 250 CP \/ travel day per unit \(Group override\)/);
+    assert.match(read(),/Assigned To: Cassian/);
+    assert.match(read(),/1 reserved seat/);
+    assert.equal(ctx.changes.length,0);
+  }finally{ctx.restore();}
+});
+
+test("capacity preview excludes disabled transport and distinguishes unknown seats from a definite shortfall",async()=>{
+  const ctx=setup();
+  try{
+    ctx.group.system.members.push({actor:{id:"unknownShip",name:"Unknown Boat",type:"vehicle",
+      system:{details:{type:"water"}}}});
+    ctx.setSaved({version:7,groups:{group1:{members:{
+      camel1:{role:"mount",quantity:3,capacity:1,surface:"land",enabled:false},
+      ship1:{role:"unassigned",quantity:1,capacity:null,surface:"water",enabled:false}
+    }}}});
+    const root=await new AtlasGroupTransportationSettings(ctx.group.id)._renderHTML();
+    const nodes=flatten(root);
+    const summary=nodes.find(n=>n.className==="atlas-group-transport-capacity");
+    const read=()=>flatten(summary).map(n=>n.textContent??"").join(" ");
+    assert.match(read(),/Land: 1 seats needed \/ 0 available.*1 seat short/);
+    assert.match(read(),/Water: 1 seats needed \/ 0 available.*short of known capacity.*unknown capacity/);
+    const camel=nodes.find(n=>n.className==="atlas-group-transport-resource"&&
+      n.children[0]?.children[0]?.textContent==="Camel");
+    assert.match(flatten(camel).map(n=>n.textContent).join(" "),/Excluded/);
+    const restore=nodes.find(n=>n.attributes.get("aria-label")==="Restore Camel to Party travel");
+    assert.ok(restore);
+    await restore.events.click[0]();
+    assert.match(read(),/Land: 1 seats needed \/ 3 available/);
+    assert.equal(ctx.changes.length,0);
+  }finally{ctx.restore();}
+});
+
+test("invalid capacity draft removes stale figures and recovering the draft updates without writing",async()=>{
+  const ctx=setup();
+  try{
+    const root=await new AtlasGroupTransportationSettings(ctx.group.id)._renderHTML();
+    const nodes=flatten(root);
+    const summary=nodes.find(n=>n.className==="atlas-group-transport-capacity");
+    const read=()=>flatten(summary).map(n=>n.textContent??"").join(" ");
+    const qty=nodes.find(n=>n.name==="quantity-camel1");
+    qty.value="0";qty.events.change[0]();
+    assert.match(read(),/Draft — capacity preview unavailable/);
+    assert.doesNotMatch(read(),/Land:.*available/);
+    qty.value="4";qty.events.change[0]();
+    assert.match(read(),/Land: 1 seats needed \/ 4 available/);
+    assert.equal(ctx.changes.length,0);
+  }finally{ctx.restore();}
+});
+
 test("saving matching profile ID preserves mount capacity across Actor rename",async()=>{
   const ctx=setup();
   try{
@@ -300,16 +407,20 @@ test("Party transportation child editor stages existing Group data without writi
     const edit=elements.find(e=>e.attributes.get("aria-label")==="Edit Camel transportation");
     assert.ok(edit?.events.click?.length);
     globalThis.foundry={applications:{api:{DialogV2:{
-      input:async()=>({
+      input:async options=>{
+        assert.match(options.ok.label,/Apply to Party draft/);
+        return {
         groupProfileId:"camel",groupQuantity:"4",capacity:"",
         groupSpeedCustom:"on",speedDisplay:"3.75",
         groupCostCustom:"on",cost_pp:"0",cost_gp:"0",cost_ep:"0",cost_sp:"0",
         cost_cp:"0",groupBasisCustom:"on",costBasis:"none",costApplies:"unit",
         purchaseEnabled:false,note:""
-      })
+      };}
     }}}};
     await edit.events.click[0]();
     assert.equal(ctx.changes.length,0,"child edit does not save World/Group");
+    assert.ok(elements.some(e=>/Unsaved changes/.test(e.textContent??"")),
+      "child Apply visibly marks the parent draft unsaved");
     assert.equal(elements.find(e=>e.name==="quantity-camel1").value,"4");
     assert.equal(elements.find(e=>e.name==="speed-camel1").value,"3.75");
     const save=elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
@@ -367,7 +478,9 @@ test("unique mount Assigned To uses current native Group IDs and stages until Gr
     assert.equal(rider.value,"");
     assert.deepEqual(rider.children.map(x=>x.value),["","pc1","pc2"]);
     assert.notEqual(rider.children[1].textContent,rider.children[2].textContent,
-      "identically named characters are distinguished by stable IDs");
+      "identically named characters are distinguishable without changing stable IDs");
+    assert.ok(rider.children.slice(1).every(e=>!e.textContent.includes(e.value)),
+      "raw Actor IDs are not displayed as rider labels");
     const edit=elements.find(e=>e.attributes.get("aria-label")==="Edit Camel transportation");
     globalThis.foundry={applications:{api:{DialogV2:{input:async()=>({
       groupProfileId:"camel",groupQuantity:"1",groupAssignedTo:"pc2",
@@ -384,7 +497,7 @@ test("unique mount Assigned To uses current native Group IDs and stages until Gr
     sameName.name="Renamed passenger";
     const reopened=flatten(await app._renderHTML());
     assert.equal(reopened.find(e=>e.name==="assigned-to-camel1").value,"pc2");
-    assert.ok(reopened.some(e=>(e.textContent??"").includes("Renamed passenger · pc2")),
+    assert.ok(reopened.some(e=>(e.textContent??"")==="Assigned To: Renamed passenger (exclusive personal mount; no boarding)"),
       "live display name updates but persisted ID never changes");
   }finally{globalThis.foundry=oldFoundry;ctx.restore();}
 });
@@ -429,7 +542,7 @@ test("invalid, orphan and duplicate mount rider assignments are rejected before 
   }finally{ctx.restore();}
 });
 
-test("Need Setup role changes move NPC into category; Needs seat is staged and saved",async()=>{
+test("Need Setup role edits keep the active row until explicit tab change; seat choice stays staged",async()=>{
   const ctx=setup();try{
     const nyx={id:"nyx",name:"Nyx",type:"npc",system:{}};
     const jon={id:"jon",name:"Jonathan",type:"npc",system:{}};
@@ -449,12 +562,19 @@ test("Need Setup role changes move NPC into category; Needs seat is staged and s
     const jonSeat=input("needs-seat-jon");
     const jonRole=input("role-jon");
     assert.equal(jonSeat.parentElement.hidden,true,"toggle hidden before Companion / passenger");
+    tabs[4].events.click[0]();
+    const initialParent=jonRole.parentElement.parentElement.parentElement.parentElement;
     const before=ctx.changes.length;
     nyxSeat.checked=false;nyxSeat.events.change[0]();
     jonRole.value="passenger";jonRole.events.change.forEach(fn=>fn());
     assert.equal(tabs[4].textContent,"Need Setup");
     assert.equal(jonSeat.parentElement.hidden,false);
     assert.equal(jonSeat.checked,true);
+    assert.equal(jonRole.parentElement.parentElement.parentElement.parentElement,initialParent,
+      "role changes keep the edited row visible in its current tab");
+    assert.equal(tabs[4].attributes.get("aria-selected"),"true");
+    assert.ok(elements.some(e=>/Unsaved changes/.test(e.textContent??"")));
+    tabs[3].events.click[0]();
     const npcCategory=elements.find(e=>e.className==="atlas-group-transport-npc-category"&&
       e.children[0]?.textContent==="Companions / Passengers");
     assert.ok(npcCategory.children.some(e=>e.className==="atlas-group-transport-resource"&&
@@ -472,6 +592,32 @@ test("Need Setup role changes move NPC into category; Needs seat is staged and s
   }finally{ctx.restore();}
 });
 
+test("Cancel Party transportation preserves the draft when declined and never persists",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry;
+  try{
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);
+    let closed=0,allow=false;
+    app.close=async()=>{closed++;};
+    globalThis.foundry={applications:{api:{DialogV2:{
+      confirm:async()=>allow
+    }}}};
+    const nodes=flatten(await app._renderHTML());
+    const role=nodes.find(e=>e.name==="role-camel1");
+    role.value="passenger";role.events.change.forEach(fn=>fn());
+    const cancel=nodes.find(e=>e.tagName==="BUTTON"&&e.textContent==="Cancel");
+    assert.ok(cancel,"explicit Cancel is discoverable");
+    await cancel.events.click[0]();
+    assert.equal(closed,0);
+    assert.equal(app.dirty,true);
+    assert.equal(role.value,"passenger");
+    allow=true;
+    await cancel.events.click[0]();
+    assert.equal(closed,1);
+    assert.equal(ctx.changes.length,0);
+    assert.equal(ctx.saved.groups.group1.members.camel1.role,"mount");
+  }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});
+
 test("NPC roles and tab switches never write; Save, Refresh and Settings use standard footer actions",async()=>{
   const ctx=setup();try{
     const app=new AtlasGroupTransportationSettings(ctx.group.id);
@@ -481,7 +627,8 @@ test("NPC roles and tab switches never write; Save, Refresh and Settings use sta
     const left=footer.children[0],right=footer.children[1];
     assert.ok(flatten(left).some(n=>n.textContent==="Transportation Presets"));
     assert.ok(flatten(left).some(n=>n.attributes.get("aria-label")==="Refresh Party Transportation"));
-    const save=right.children[0];
+    assert.equal(right.children[0].textContent,"Cancel");
+    const save=right.children[1];
     assert.equal(save.attributes.get("aria-label"),"Save Party Transportation Assignments");
     assert.match(save.className,/atlas-ui-icon-button--footer/);
     assert.equal(save.children[0].className,"fa-solid fa-floppy-disk");
@@ -492,5 +639,214 @@ test("NPC roles and tab switches never write; Save, Refresh and Settings use sta
     tabs[4].events.click[0]();
     tabs[0].events.click[0]();
     assert.deepEqual(ctx.changes,[],"render and navigation are read-only");
+  }finally{ctx.restore();}
+});
+
+test("Party vehicle crew editor applies unit drafts without saving, then persists only on Party Save",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry;
+  try{
+    const sailor={id:"npc2",name:"Sailor",type:"npc",system:{}};
+    ctx.group.system.members.push({actor:sailor});
+    const old=ctx.saved;
+    ctx.setSaved({...old,groups:{group1:{members:{...old.groups.group1.members,
+      ship1:{role:"unassigned",quantity:2,capacity:60,surface:"water",profileId:"warship"},
+      npc2:{role:"crew",quantity:1,capacity:null,surface:"water"}}}}});
+    const native=JSON.stringify(ctx.group);
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);app.render=async()=>{};
+    const elements=flatten(await app._renderHTML());
+    const unit=elements.find(e=>e.name==="crew-unit-ship1");
+    const edit=elements.find(e=>e.attributes.get("aria-label")==="Edit crew for Warship");
+    const save=elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
+    assert.ok(unit&&edit,"owned vehicle has a unit roster editor");
+    assert.deepEqual(unit.children.map(o=>o.value),["1","2"]);
+    let response=null;
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content,ok})=>{
+      assert.equal(ok.label,"Apply to Party draft");
+      const nodes=flatten(content);
+      assert.ok(nodes.find(n=>n.name==="crew-pc1"));
+      assert.ok(nodes.find(n=>n.name==="crew-npc2"));
+      assert.equal(nodes.some(n=>n.name==="crew-camel1"),false,"mounts are not eligible named crew");
+      return response;
+    }}}}};
+    await edit.events.click[0]();
+    assert.deepEqual(ctx.changes,[],"Cancel performs no write");
+    response={hiredCrew:"30","crew-pc1":true,"duty-pc1":"Navigator","crew-npc2":true};
+    await edit.events.click[0]();
+    assert.deepEqual(ctx.changes,[],"Apply affects only the parent draft");
+    assert.ok(elements.some(n=>/32 \/ 60/.test(n.textContent??"")),"shows staffed vs full");
+    unit.value="2";
+    response={hiredCrew:"12","crew-pc1":true};
+    await edit.events.click[0]();
+    assert.deepEqual(ctx.changes,[],"duplicate draft crew cannot write");
+    response={hiredCrew:"12"};
+    await edit.events.click[0]();
+    await save.events.click[0]();
+    assert.equal(ctx.changes.length,1);
+    assert.deepEqual(ctx.saved.groups.group1.members.ship1.crewRoster,[
+      {unitIndex:1,named:[{actorId:"pc1",duty:"Navigator"},{actorId:"npc2"}],hired:30},
+      {unitIndex:2,named:[],hired:12}
+    ]);
+    assert.equal(JSON.stringify(ctx.group),native,"no native Group or Actor changes");
+  }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});
+
+test("Party Save blocks stale crew assignments and invalid unit edits",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry;
+  try{
+    const old=ctx.saved;
+    ctx.setSaved({...old,groups:{group1:{members:{...old.groups.group1.members,
+      ship1:{role:"unassigned",quantity:1,capacity:60,surface:"water",profileId:"warship",
+        crewRoster:[{unitIndex:1,named:[{actorId:"missing"}],hired:0}]}}}}});
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);app.render=async()=>{};
+    const elements=flatten(await app._renderHTML());
+    const edit=elements.find(e=>e.attributes.get("aria-label")==="Edit crew for Warship");
+    const save=elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
+    await save.events.click[0]();
+    assert.deepEqual(ctx.changes,[],"stale assignment cannot be saved silently");
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content})=>{
+      assert.ok(flatten(content).some(e=>e.name==="crew-missing"),"stale member is visible for correction");
+      return {hiredCrew:"0"};
+    }}}}};
+    await edit.events.click[0]();
+    await save.events.click[0]();
+    assert.deepEqual(ctx.saved.groups.group1.members.ship1.crewRoster,[]);
+    assert.equal(ctx.changes.length,1);
+  }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});
+
+test("Party crew policy editor previews inherited values, applies overrides and resets without losing crew",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry;
+  try{
+    const old=ctx.saved;
+    const crewRoster=[{unitIndex:1,named:[{actorId:"pc1"}],hired:30}];
+    ctx.setSaved({...old,groups:{group1:{members:{...old.groups.group1.members,
+      ship1:{role:"unassigned",quantity:2,capacity:60,surface:"water",profileId:"warship",crewRoster}}}}});
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);app.render=async()=>{};
+    const elements=flatten(await app._renderHTML());
+    const edit=elements.find(e=>e.attributes.get("aria-label")==="Edit crew policy for Warship");
+    const save=elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
+    assert.ok(edit);
+    let response=null,expectedFull="60";
+    globalThis.foundry={applications:{api:{DialogV2:{input:async({content,ok,render})=>{
+      // DialogV2 serializes markup: fresh nodes retain attributes and values
+      // but not listeners. Exercise the rendered form, not the source tree.
+      const clone=original=>{
+        const copy=new FakeElement(original.tagName);
+        Object.assign(copy,original,{events:{},children:[],attributes:new Map(original.attributes),
+          dataset:{},parentElement:null});
+        copy.append(...original.children.map(clone));
+        return copy;
+      };
+      const live=clone(content),nodes=flatten(live);
+      const byName=name=>nodes.find(n=>n.name===name);
+      live.querySelector=selector=>selector==='[name="policyMode"]'?byName("policyMode"):
+        selector==="[data-atlas-crew-policy-fields]"?nodes.find(n=>n.attributes.has("data-atlas-crew-policy-fields")):null;
+      for(const n of nodes)n.querySelectorAll=selector=>selector==="input,select"?
+        flatten(n).filter(x=>["INPUT","SELECT"].includes(x.tagName)):[];
+      render?.({}, {element:live});
+      assert.equal(ok.label,"Apply to Party draft");
+      assert.equal(byName("policyFull").value,expectedFull);
+      const mode=byName("policyMode"),full=byName("policyFull"),wage=byName("policyWage_gp");
+      assert.equal(full.disabled,mode.value==="inherit");
+      assert.equal(wage.disabled,mode.value==="inherit");
+      if(!response)return null;
+      mode.value=response.policyMode;
+      for(const fn of mode.events.change??[])fn();
+      assert.equal(full.disabled,mode.value==="inherit");
+      assert.equal(wage.disabled,mode.value==="inherit");
+      if(mode.value==="custom"){
+        for(const [name,value] of Object.entries(response)){
+          const control=byName(name);
+          assert.ok(control&&!control.disabled,name);
+          if(control.type==="checkbox")control.checked=value;
+          else control.value=value;
+        }
+      }
+      return Object.fromEntries(nodes.filter(n=>n.name&&!n.disabled).map(n=>
+        [n.name,n.type==="checkbox"?n.checked:n.value]));
+    }}}}};
+    await edit.events.click[0]();
+    assert.deepEqual(ctx.changes,[]);
+    response={policyMode:"custom",policyFull:"40",policyMinimum:"10",policyOptimal:"20",policyExcellent:"30",
+      policyWage_gp:"2",policyBasis:"trip",policyPaid:true};
+    await edit.events.click[0]();
+    assert.deepEqual(ctx.changes,[]);
+    assert.ok(elements.some(e=>/31 \/ 40/.test(e.textContent??"")));
+    await save.events.click[0]();
+    assert.deepEqual(ctx.saved.groups.group1.members.ship1.crewPolicyOverride,
+      {crewCount:40,crewThresholds:{minimum:10,optimal:20,excellent:30},crewWageCpPerDay:200,
+        crewWageBasis:"trip",includeCrewWages:true});
+    assert.deepEqual(ctx.saved.groups.group1.members.ship1.crewRoster,crewRoster);
+    const reopened=flatten(await app._renderHTML());
+    expectedFull="40";response={policyMode:"inherit"};
+    await reopened.find(e=>e.attributes.get("aria-label")==="Edit crew policy for Warship").events.click[0]();
+    assert.equal(ctx.changes.length,1);
+    await reopened.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments").events.click[0]();
+    assert.equal(ctx.saved.groups.group1.members.ship1.crewPolicyOverride,null);
+    assert.deepEqual(ctx.saved.groups.group1.members.ship1.crewRoster,crewRoster);
+    assert.equal(ctx.changes.length,2);
+  }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});
+
+test("removed vehicle crew can be cleared explicitly in the Party draft and reassigned",async()=>{
+  const ctx=setup(),oldFoundry=globalThis.foundry;
+  try{
+    const old=ctx.saved;
+    ctx.setSaved({...old,groups:{...old.groups,group1:{members:{...old.groups.group1.members,
+      vanished:{role:"unassigned",quantity:1,capacity:60,surface:"water",profileId:"warship",
+        crewRoster:[{unitIndex:1,named:[{actorId:"pc1",duty:"Captain"}],hired:12}]},
+      ship1:{role:"unassigned",quantity:1,capacity:60,surface:"water",profileId:"warship",crewRoster:[]}
+    }},other:{members:{otherShip:{role:"unassigned",quantity:1,capacity:2,surface:"water",
+      crewRoster:[{unitIndex:1,named:[{actorId:"pc1"}],hired:1}]}}}}});
+    const native=JSON.stringify(ctx.group),initial=JSON.stringify(ctx.saved);
+    const app=new AtlasGroupTransportationSettings(ctx.group.id);app.render=async()=>{};
+    const elements=flatten(await app._renderHTML());
+    const clear=elements.find(e=>e.attributes.get("aria-label")==="Clear stored crew for unavailable vehicle vanished");
+    assert.ok(clear,"removed vehicle remains visible for explicit crew correction");
+    assert.equal(JSON.stringify(ctx.saved),initial,"opening never migrates the roster");
+    await clear.events.click[0]();
+    assert.equal(clear.attributes.get("aria-label"),"Undo clearing stored crew for unavailable vehicle vanished");
+    await clear.events.click[0]();
+    assert.equal(clear.attributes.get("aria-label"),"Clear stored crew for unavailable vehicle vanished");
+    assert.equal(JSON.stringify(ctx.saved),initial,"clear and undo are draft only");
+    await clear.events.click[0]();
+    const edit=elements.find(e=>e.attributes.get("aria-label")==="Edit crew for Warship");
+    const save=elements.find(e=>e.attributes.get("aria-label")==="Save Party Transportation Assignments");
+    globalThis.foundry={applications:{api:{DialogV2:{input:async()=>({hiredCrew:"0","crew-pc1":true})}}}};
+    await edit.events.click[0]();
+    assert.deepEqual(ctx.changes,[]);
+    await save.events.click[0]();
+    assert.equal(ctx.changes.length,1);
+    assert.deepEqual(ctx.saved.groups.group1.members.vanished.crewRoster,[]);
+    assert.equal(ctx.saved.groups.group1.members.vanished.profileId,"warship","retain other metadata");
+    assert.deepEqual(ctx.saved.groups.group1.members.ship1.crewRoster,[{unitIndex:1,named:[{actorId:"pc1"}],hired:0}]);
+    assert.deepEqual(ctx.saved.groups.other.members.otherShip.crewRoster,[{unitIndex:1,named:[{actorId:"pc1"}],hired:1}]);
+    assert.equal(JSON.stringify(ctx.group),native);
+    const reopened=flatten(await app._renderHTML());
+    assert.ok(!reopened.some(e=>e.attributes.get("aria-label")==="Clear stored crew for unavailable vehicle vanished"));
+  }finally{globalThis.foundry=oldFoundry;ctx.restore();}
+});
+
+test("owned vehicle cards expose separate passenger and crew capacity without assigning Group crew",async()=>{
+  const ctx=setup();
+  try{
+    ctx.group.system.members.push({actor:{id:"sailor",name:"Sailor",type:"npc",system:{}}});
+    ctx.setSaved({version:7,groups:{group1:{members:{
+      ship1:{role:"unassigned",quantity:2,capacity:55,surface:"water",profileId:"warship"},
+      sailor:{role:"crew",quantity:3,capacity:null,surface:"water"}
+    }}}});
+    const root=await new AtlasGroupTransportationSettings(ctx.group.id)._renderHTML();
+    const nodes=flatten(root);
+    const ship=nodes.find(n=>n.className==="atlas-group-transport-resource"&&
+      n.children[0]?.children[0]?.textContent==="Warship ★ Primary vehicle");
+    const labels=flatten(ship).map(n=>n.textContent??"").join(" ");
+    assert.match(labels,/Seats\/unit: 55 \(Group override\)/);
+    assert.match(labels,/60 required crew per unit/);
+    assert.match(labels,/120 required across 2 units/);
+    assert.match(labels,/Crew wages excluded/);
+    const status=nodes.find(n=>n.className==="atlas-group-transport-capacity");
+    assert.match(flatten(status).map(n=>n.textContent??"").join(" "),/3 crew role.*not allocated/);
+    assert.match(flatten(status).map(n=>n.textContent??"").join(" "),/Water: 1 seats needed \/ 110 available/);
+    assert.deepEqual(ctx.changes,[]);
   }finally{ctx.restore();}
 });

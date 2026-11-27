@@ -4,7 +4,7 @@
 
 Turn a Scene map into a network of named roads, recognizable locations, geographic territories, and planned journeys. **Atlas helps the Game Master (GM) organize a world map, describe routes, and guide party travel**, while Foundry remains responsible for its native Scenes, Regions, Tokens, Journals, and permissions.
 
-**Current version:** 0.3.10 · **Foundry compatibility:** v14
+**Foundry compatibility:** v14 · See the installed module manifest for its version.
 
 ## What can Atlas do?
 
@@ -38,9 +38,9 @@ The manifest follows the maintained `main` version. Back up your World before ma
 Atlas's authoring tools are available to the **GM** from the Scene canvas toolbar.
 
 1. **Open the workspace.** With a Scene active, find **Atlas Exploration** in the canvas controls and select **Atlas Scene Workspace (GM)** (the gear icon). This opens the Atlas workspace for that Scene.
-2. **Create a road.** In **Map directory**, choose **Add road**, or use the **Draw Atlas Road** canvas tool. Define its name and properties, place the road points on the map, and save. Roads are not automatically connected simply because their lines cross.
+2. **Create a road.** In **Map directory**, choose **Add road**, or use the **Draw Atlas Road** canvas tool. Place at least two road points on the map and save; Road Settings opens for the saved Road so you can name and customize it. Roads are not automatically connected simply because their lines cross.
 3. **Place Map Markers.** Choose **Add Map Marker** or the matching canvas tool. Add a landmark independently or associate it with an eligible road location. Use its Settings to choose the marker type, icon, label, discovery settings, and any Journal link.
-4. **Add geographic territories (optional).** Use **Add territory** or the Territory tools in **Settings → Advanced map operations**. Atlas uses Foundry's native Regions for territory shapes; it can also offer a matching one-cell Territory after saving a settlement Map Marker.
+4. **Add geographic territories (optional).** Use **Add territory** or the Territory tools in **Map directory → Territory tools**. Atlas uses Foundry's native Regions for territory shapes; it can also offer a matching one-cell Territory after saving a settlement Map Marker.
 5. **Choose what to show.** Use **Atlas Layers** for map presentation and individual Road, Map Marker, and Territory settings to control the appropriate player-visible elements. Review visibility using a separate player account.
 6. **Plan a journey.** From the workspace **Overview**, choose **Plan a route**, or open the compass-shaped **Atlas Navigation** canvas tool. Select a destination, review the route, travel method, and estimate, then explicitly approve travel when ready.
 
@@ -92,7 +92,7 @@ A native Scene export includes the Scene's Atlas data and native Regions, but **
 
 ## Important limitations
 
-Atlas v0.3.10 is a maintained mainline version, but some advanced workflows still require caution:
+Some advanced workflows still require caution:
 
 - **Journey recovery:** A canvas reload, weather-related Scene rebuild, or interrupted transfer can leave a Journey needing GM review. If Atlas reports an inconsistency between a Token and the saved Journey, preserve the Journal and investigate rather than restarting movement to force progress.
 - **Territory transfers:** Complex multi-Region grid edits and interrupted writes may require the built-in recovery review. Back up the World and do not override a pending recovery warning.

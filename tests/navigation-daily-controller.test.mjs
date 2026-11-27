@@ -317,23 +317,24 @@ test("a rest-triggered canvas rebuild waits for its World-time and Journal check
   }finally{f.restore();}
 });
 
-test("each verified native chunk persists recovery without republishing mid-leg directions",async()=>{
+test("verified chunks persist recovery and the daily decision publishes confirmed progress",async()=>{
   const f=await journeyFixture({clockEnabled:false,hours:10});
   try{
     const running=f.nav.startGuidedTravel();
     await tickUntil(()=>f.nav.travelSession?.phase==="rest-choice"&&
       Boolean(f.nav.travelSession.restWaiter));
-    assert.ok(f.journalStates.some(state=>state.status==="paused"));
+    const paused=f.journalStates.at(-1);
+    assert.equal(paused.status,"paused");
+    assert.ok(paused.legs.at(-1).completedPercent>0);
+    assert.ok(paused.legs.at(-1).completedPercent<100);
     assert.equal(f.nav.chooseDailyTravelBreak("overnight"),true);
     assert.equal(await running,true);
     assert.ok(f.token.moves.length>5);
     assert.ok(f.journalStates.length>=f.token.moves.length,
       "every verified TokenDocument chunk must be durably anchored before the next move");
-    assert.equal(f.journalWrites.filter(write=>write.updatePage===true).length,1,
-      "only final arrival publishes the readable Journey page");
-    assert.equal(f.journalWrites.some(write=>write.status==="paused"&&
-      write.updatePage===true),false,
-    "daily-limit decisions preserve recovery state without rewriting incomplete legs");
+    assert.deepEqual(f.journalWrites.filter(write=>write.updatePage===true)
+      .map(write=>write.status),["paused","completed"],
+      "publish confirmed history at the daily decision and arrival only");
     assert.equal(f.journalStates.at(-1).status,"completed");
     assert.equal(f.journalStates.at(-1).startedWorldTime,
       f.journalStates.at(-1).arrivedWorldTime,

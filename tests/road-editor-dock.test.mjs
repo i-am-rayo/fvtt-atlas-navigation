@@ -94,7 +94,7 @@ test("compact checkpoint and junction docks keep persistent map instructions", a
       });
       const root = await dock._renderHTML();
       assert.ok(descendants(root).some(node => node.textContent.includes(expected)));
-      assert.ok(button(root, "Cancel"));
+      assert.ok(button(root,mode==="checkpoint"?"Exit placement":"Cancel"));
       assert.equal(button(root, "Finish Road"), undefined);
       assert.equal(button(root, "Save Points"), undefined);
       assert.equal(button(root, "Locate Road"), undefined);

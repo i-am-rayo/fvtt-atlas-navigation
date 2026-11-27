@@ -223,3 +223,28 @@ test("continuous day-based crew wages use proportional normal duty days",()=>{
   assert.equal(quote.totalCp,900);
   assert.equal(quote.driverIncluded,false);
 });
+
+test("service quotes distinguish required crew from separately wage-estimated positions",()=>{
+  for(const [basis,periods] of [["day",2],["trip",1],["mile",10]]){
+    const method={...wagon,crewCount:4,crewWageBasis:basis,hireCrewIncluded:false};
+    const opts={arrangement:"hire",movingHours:12,distanceMi:10,travelers:7};
+    const quote=quoteTransportationService(method,opts);
+    assert.equal(quote.units,2);
+    assert.equal(quote.requiredCrew,8);
+    assert.equal(quote.paidCrew,8);
+    assert.equal(quote.crewWagesCp,8*200*periods);
+    const included=quoteTransportationService({...method,hireCrewIncluded:true},opts);
+    assert.equal(included.requiredCrew,8);
+    assert.equal(included.paidCrew,0);
+    assert.equal(included.crewWagesCp,0);
+    const zero=quoteTransportationService({...method,crewCount:0},opts);
+    assert.equal(zero.requiredCrew,0);
+    assert.equal(zero.paidCrew,0);
+  }
+  const quote=quoteTransportationService(warship,{arrangement:"owned",movingHours:8,distanceMi:20,
+    ownedQuote:{quantity:2,amount:1600,breakdown:[{requiredCrew:8,paidCrew:8,
+      recurringCp:0,crewWagesCp:1600,amount:1600,quantity:2}]}});
+  assert.equal(quote.requiredCrew,8);
+  assert.equal(quote.paidCrew,8);
+  assert.equal(quote.totalCp,1600);
+});

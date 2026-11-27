@@ -2,6 +2,8 @@
  * Opt-in transportation service schedule and estimate engine.
  * Pure planning only. No Actor, Scene, currency or clock writes.
  */
+import {HIRE_SERVICE_LEVELS,validateHireServiceLevels,resolveCrewThresholds} from "./navigation-transport-catalog.js";
+
 export const TRANSPORT_HIRE_BASES=Object.freeze(["trip","mile","day"]);
 export const TRANSPORT_OPERATIONS=Object.freeze(["normal","overtime","continuous"]);
 export const LIVESTOCK_FARE_PERCENT_SETTING="guidedLivestockFarePercent";
@@ -48,6 +50,22 @@ export function resolveTransportationOperation(method,operation="normal",regular
     throw Error("Invalid transportation overtime multiplier.");
   return Object.freeze({operation,dailyHours,overnightHours:24-dailyHours,
     overtimeMultiplier:multiplier});
+}
+
+/** Resolve an explicitly chosen hired service level, never infer availability.
+ * Existing unselected offers retain their original fare and schedule. */
+export function resolveHiredServiceLevel(method,tier,regularHours=8){
+  if(!method?.hireEnabled)throw Error("This transportation method is not offered for hire.");
+  if(method.kind!=="vehicle")throw Error("Hired service levels require a vehicle.");
+  if(!HIRE_SERVICE_LEVELS.includes(tier))throw Error("Unknown hired service level.");
+  const thresholds=resolveCrewThresholds(method);
+  const terms=validateHireServiceLevels(method.hireServiceLevels??{})[tier]??{};
+  const defaultOperation=tier==="full"&&method.continuousEnabled?"continuous":
+    tier!=="minimum"&&method.overtimeEnabled?"overtime":"normal";
+  const operation=terms.operation??defaultOperation;
+  resolveTransportationOperation(method,operation,regularHours);
+  const fare=resolveTransportationHireFare(method,terms);
+  return Object.freeze({...fare,serviceLevel:tier,crewCount:thresholds[tier],operation});
 }
 
 /** Resolve a trip-local quote without altering the World transportation preset. */
@@ -101,7 +119,7 @@ export function assessHiredTransportAvailability(method,{travelers,requestedUnit
 export function quoteTransportationService(method,{
   arrangement="owned",operation="normal",movingHours,distanceMi,
   travelers=1,requestedUnits=null,livestockCount=0,ownedQuote=null,
-  hireTerms=null,adjustmentCp=0,regularHours=8,
+  hireTerms=null,adjustmentCp=0,regularHours=8,serviceLevel=null,sharedTravelDay=false,
   livestockPercent=LIVESTOCK_FARE_PERCENT_DEFAULT
 }={}){
   if(!method||!["owned","hire"].includes(arrangement)||
@@ -111,6 +129,22 @@ export function quoteTransportationService(method,{
     !validLivestockFarePercent(livestockPercent)||
     !Number.isFinite(adjustmentCp)||Math.abs(adjustmentCp)>1e8)
     throw Error("Invalid transportation service estimate.");
+  let level=null,advertisedDailyHours=null;
+  if(typeof sharedTravelDay!=="boolean"||sharedTravelDay&&serviceLevel===null)
+    throw Error("A shared service schedule requires an explicit hired tier.");
+  if(serviceLevel!==null){
+    if(arrangement!=="hire")throw Error("Service levels apply to hired transportation only.");
+    level=resolveHiredServiceLevel(method,serviceLevel,regularHours);
+    method={...method,crewCount:level.crewCount,hireCostCp:level.hireCostCp};
+    operation=level.operation;
+    if(sharedTravelDay){
+      advertisedDailyHours=resolveTransportationOperation(method,operation,regularHours).dailyHours;
+      if(regularHours>advertisedDailyHours)throw Error("The convoy schedule exceeds the selected service capability.");
+      // A shared land convoy follows its approved common travel day; a tier
+      // buys staffing and service terms, not independent movement or overtime.
+      operation="normal";
+    }
+  }
   const fare=arrangement==="hire"?resolveTransportationHireFare(method,hireTerms):null;
   const schedule=resolveTransportationOperation(method,operation,regularHours);
   const days=movingHours<=EPS?0:Math.ceil(Math.max(0,movingHours-EPS)/schedule.dailyHours);
@@ -124,6 +158,7 @@ export function quoteTransportationService(method,{
     extraHours=fullDays*(schedule.dailyHours-8)+Math.max(0,remaining-8);
   }
   let units=1,baseCp=0,crewWagesCp=0,baseLabel="Owned Group resources";
+  let requiredCrew=null,paidCrew=null;
   let livestockBaseCp=0,livestockOvertimeCp=0;
   if(arrangement==="hire"){
     const animalSlots=method.livestockCapacity;
@@ -170,6 +205,8 @@ export function quoteTransportationService(method,{
     }
     baseLabel="Hired "+fare.hireBasis+" fare ("+count+" "+
       (fare.hireApplies==="passenger"?"passenger(s)":"unit(s)")+")";
+    requiredCrew=(method.crewCount??0)*units;
+    paidCrew=method.includeCrewWages&&!method.hireCrewIncluded?requiredCrew:0;
     if(method.includeCrewWages&&!method.hireCrewIncluded)
       crewWagesCp=(method.crewCount??0)*(method.crewWageCpPerDay??200)*
         wagePeriods(method,billableDayUnits,distanceMi,movingHours)*units;
@@ -182,6 +219,12 @@ export function quoteTransportationService(method,{
       (item.recurringCp??item.amount??0),0);
     crewWagesCp=ownedQuote.breakdown.reduce((sum,item)=>sum+
       (item.crewWagesCp??0),0);
+    // Legacy/incomplete breakdowns lack staffing evidence. Do not invent it.
+    const crewTotal=key=>ownedQuote.breakdown.every(item=>
+      Number.isSafeInteger(item[key])&&item[key]>=0)?
+      ownedQuote.breakdown.reduce((sum,item)=>sum+item[key],0):null;
+    requiredCrew=crewTotal("requiredCrew");
+    paidCrew=crewTotal("paidCrew");
   }
   let overtimeFareCp=0,overtimeCrewCp=0;
   if(operation==="overtime"&&extraHours>EPS){
@@ -217,9 +260,46 @@ export function quoteTransportationService(method,{
   return Object.freeze({arrangement,operation,units,travelers,
     movingHours,distanceMi,travelDays:days,billableDayUnits,extraHours,
     dailyHours:schedule.dailyHours,overnightHours:schedule.overnightHours,
-    baseLabel,baseCp,crewWagesCp,overtimeFareCp,overtimeCrewCp,adjustmentCp,
+    baseLabel,baseCp,requiredCrew,paidCrew,crewWagesCp,overtimeFareCp,overtimeCrewCp,adjustmentCp,
     livestockCount,livestockBaseCp,livestockOvertimeCp,
     livestockFareCp:livestockBaseCp+livestockOvertimeCp,
     totalCp,hireTerms:fare,driverIncluded:arrangement==="hire"&&Boolean(method.hireCrewIncluded),
-    provisionalAvailability:arrangement==="hire"});
+    provisionalAvailability:arrangement==="hire",
+    ...(level?{serviceLevel:level.serviceLevel,advertisedCrew:level.crewCount}:{}),
+    ...(sharedTravelDay?{advertisedDailyHours}:{})});
+}
+
+/** Bounded copy of an explicitly reviewed hired tier quote. This is historical
+ * evidence, not a fresh booking, and needs no live catalog to validate it. */
+export function validateHiredServiceApproval(raw){
+  const numeric=["movingHours","distanceMi","billableDayUnits","extraHours","baseCp",
+    "crewWagesCp","overtimeFareCp","overtimeCrewCp","livestockBaseCp","livestockOvertimeCp",
+    "livestockFareCp","totalCp"];
+  const count=(value,max)=>Number.isInteger(value)&&value>=0&&value<=max;
+  if(!raw||raw.arrangement!=="hire"||!HIRE_SERVICE_LEVELS.includes(raw.serviceLevel)||
+      !TRANSPORT_OPERATIONS.includes(raw.operation)||!count(raw.advertisedCrew,1000)||
+      !count(raw.units,1000)||raw.units===0||!count(raw.travelers,1000)||
+      !count(raw.livestockCount,15000)||!Number.isSafeInteger(raw.travelDays)||raw.travelDays<0||
+      numeric.some(key=>!nonnegative(raw[key])||raw[key]>Number.MAX_SAFE_INTEGER)||
+      !Number.isFinite(raw.adjustmentCp)||Math.abs(raw.adjustmentCp)>1e8||
+      !Number.isFinite(raw.dailyHours)||raw.dailyHours<=0||raw.dailyHours>24||
+      raw.overnightHours!==24-raw.dailyHours||
+      (raw.advertisedDailyHours!==undefined&&(!Number.isFinite(raw.advertisedDailyHours)||
+        raw.advertisedDailyHours<raw.dailyHours||raw.advertisedDailyHours>24||raw.operation!=="normal"))||
+      raw.operation==="continuous"&&raw.dailyHours!==24||
+      raw.operation==="overtime"&&(raw.dailyHours<9||raw.dailyHours>16)||
+      raw.extraHours>raw.movingHours||raw.operation!=="overtime"&&raw.extraHours!==0||
+      typeof raw.driverIncluded!=="boolean"||
+      raw.driverIncluded&&(raw.crewWagesCp!==0||raw.overtimeCrewCp!==0)||
+      raw.livestockFareCp!==raw.livestockBaseCp+raw.livestockOvertimeCp||
+      raw.totalCp!==Math.max(0,raw.baseCp+raw.crewWagesCp+raw.overtimeFareCp+
+        raw.overtimeCrewCp+raw.livestockBaseCp+raw.livestockOvertimeCp+raw.adjustmentCp))
+    throw Error("Invalid approved hired service estimate.");
+  const hireTerms=resolveTransportationHireFare({hireEnabled:true},raw.hireTerms);
+  return {arrangement:"hire",serviceLevel:raw.serviceLevel,advertisedCrew:raw.advertisedCrew,
+    operation:raw.operation,dailyHours:raw.dailyHours,overnightHours:raw.overnightHours,
+    units:raw.units,travelers:raw.travelers,travelDays:raw.travelDays,livestockCount:raw.livestockCount,
+    ...Object.fromEntries(numeric.map(key=>[key,raw[key]])),adjustmentCp:raw.adjustmentCp,
+    hireTerms:{...hireTerms},driverIncluded:raw.driverIncluded,
+    ...(raw.advertisedDailyHours!==undefined?{advertisedDailyHours:raw.advertisedDailyHours}:{})};
 }

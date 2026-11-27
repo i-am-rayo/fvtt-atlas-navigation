@@ -1183,7 +1183,14 @@ function atlasPanel(scene, atlas, actions, refresh,
     (generatorOnly ? r.id===generatorRoads.get(scene.id) : (!sharedFilter || shownRoads.has(r.id))) &&
     atlas.checkpoints.some(c => c.roadId === r.id)) : [];
   if (!available.length) {
-    generatedSection.appendChild(node("p", label("FVTTATLAS.Generated.NoCheckpoints"), "hint"));
+    const road = generatorOnly ? atlas.roads?.find(r => r.id === generatorRoads.get(scene.id)) : null;
+    const guidance = road ?
+      road.name + ": No Map Markers are directly assigned to this road. " +
+      "The Map Directory also lists markers connected through shared road nodes; these are not Region anchors for this road. " +
+      "In Map Directory, use Add Map Marker, choose this road and place a road-linked marker. " +
+      "One directly assigned marker is required for an area; two are required for a corridor." :
+      label("FVTTATLAS.Generated.NoCheckpoints");
+    generatedSection.appendChild(node("p", guidance, "hint"));
   } else {
     let selected = generatorState.get(scene.id);
     if (!selected || !available.some(r => r.id === selected.roadId)) {

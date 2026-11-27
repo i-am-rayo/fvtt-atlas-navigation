@@ -132,3 +132,16 @@ test("blank stalls mean unlimited for both embarking and staying mounts",()=>{
       "Animal accommodation is unlimited by default")));
   }finally{restore();}
 });
+
+test("mount keyboard controls have stable focus keys across boarding columns",()=>{
+  const restore=dom();
+  try{
+    for(const decisions of [{},{warhorse:1,riding:2},{warhorse:0,riding:0}]){
+      const nodes=all(renderJourneyLivestockBoarding({resources,decisions}));
+      const quantity=nodes.find(n=>n["aria-label"]?.startsWith("Number of Riding Horse"));
+      const move=nodes.find(n=>n.title?.startsWith("Move Riding Horse"));
+      assert.equal(quantity["data-atlas-travel-focus"],"mount-quantity:riding");
+      assert.equal(move["data-atlas-travel-focus"],"mount-move:riding");
+    }
+  }finally{restore();}
+});

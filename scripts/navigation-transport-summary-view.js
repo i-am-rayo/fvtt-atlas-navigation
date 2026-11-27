@@ -4,6 +4,8 @@
  * Transport rules, Group resources, fare calculations and edit authorization
  * stay outside this presentation layer. Render-only never charges currency.
  */
+import {formatExactTransportationFare} from "./navigation-currency.js";
+
 const el=(tag,content)=>{
   const node=document.createElement(tag);
   if(content!==undefined)node.textContent=content;
@@ -72,9 +74,33 @@ export function renderTransportQuote({worldEstimate=null,currentEstimate,
   return block;
 }
 
+/** Owned staffing is a World profile reference, not a roster assignment. */
+export function describeOwnedCrewProfile(method,quantity=1){
+  if(!method)return "Not configured — link a World profile.";
+  const count=method.crewCount??0;
+  const total=Number.isInteger(quantity)&&quantity>0&&quantity<=100?
+    " · "+count*quantity+" required across "+quantity+(quantity===1?" unit":" units"):"";
+  const basis=method.crewWageBasis??"day";
+  const period=basis==="day"?"operating day":basis;
+  return count+" required crew per unit (World profile)"+total+
+    " · "+(method.includeCrewWages?
+      "Crew wage rate: "+formatExactTransportationFare(method.crewWageCpPerDay??200,
+        globalThis.CONFIG?.DND5E?.currencies)+" per crew member / "+period:
+      "Crew wages excluded from estimates");
+}
+
+/** The current quote already owns the arithmetic; display counts, never reprice. */
+export function describeJourneyCrewEstimate(quote){
+  if(!quote||quote.requiredCrew==null||quote.paidCrew==null)return null;
+  return "Required crew: "+quote.requiredCrew+" · Separately paid crew: "+quote.paidCrew+
+    (quote.requiredCrew>0&&quote.driverIncluded?" (crew included in hire fare)":
+      quote.requiredCrew>0&&quote.paidCrew===0?" (separate wages excluded)":"")+
+    ". Staffing is an estimate; Group crew are not automatically allocated.";
+}
+
 /** Report the *effective* current-leg mount fare without changing the World catalog. */
 export function describeJourneyMountFare(manifest,{method=null,worldPercent=50,
-  arrangement=null,formatMoney=value=>value+" CP",approved=false}={}){
+  arrangement=null,formatMoney=value=>value+" CP",approved=false,showFare=true}={}){
   const aboard=manifest?.resources?.filter(item=>item.aboard>0)??[];
   if(!aboard.length)return null;
   const quantity=aboard.reduce((sum,item)=>sum+item.aboard,0);
@@ -87,14 +113,43 @@ export function describeJourneyMountFare(manifest,{method=null,worldPercent=50,
     method?.hireApplies==="unit"?
       "No automatic percentage on unit-priced service":
       "World default "+worldPercent+"% of passenger fare";
-  return names+" ("+quantity+" mounts · "+policy+"): "+
-    formatMoney(manifest.estimatedFareCp)+" (included in total; not charged)";
+  const description=names+" ("+quantity+" mounts · "+policy+")";
+  if(approved)return description+(showFare?": "+formatMoney(manifest.estimatedFareCp):"")+
+    " (not quoted again; not charged)";
+  return description+(showFare?": "+formatMoney(manifest.estimatedFareCp)+
+    " (included in total; not charged)":"");
+}
+
+/** Consistent owned unit evidence across ordinary, checkpoint and mixed review. */
+export function describeOwnedUnitStaffing(unit){
+  return unit.name+" — Unit "+unit.unitIndex+": "+
+    (unit.configured?unit.staffedCrew+"/"+unit.requiredCrew+" crew · "+unit.tier:
+      "Roster unconfigured · "+unit.requiredCrew+" reference crew")+
+    " · "+unit.paidCrew+" paid"+(unit.namedCrew.length?" · "+
+      unit.namedCrew.map(c=>c.name+(c.duty?" ("+c.duty+")":"")).join(", "):"");
+}
+
+export {describeTransportationFareRows} from "./navigation-currency.js";
+
+/** Reusable route context for the planner and the GM approval. */
+export function renderNavigationRouteContext(context,{nextLabel="Next stop"}={}){
+  const list=el("dl");
+  list.className="atlas-navigation-route-context";
+  list.style.cssText="display:grid;gap:.3rem;margin:.35rem 0;padding:.6rem;border:1px solid var(--color-border-light-tertiary,#666);border-radius:6px;";
+  for(const [label,value] of [["From",context.from],[nextLabel,context.next],["Final destination",context.final]]){
+    const row=el("div");
+    row.style.cssText="display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap;";
+    const term=el("dt",label);term.style.opacity=".8";
+    const detail=el("dd",value);detail.style.cssText="margin:0;font-weight:600;overflow-wrap:anywhere;min-width:0;";
+    row.append(term,detail);list.append(row);
+  }
+  return list;
 }
 
 /** Shared read-only GM confirmation. All rows and metrics come from a
  * previously validated current-leg plan; this view never approves travel. */
 export function renderNavigationTransportApproval({
-  heading="Transportation summary",destination=null,rows=[],metrics=[],notes=[],fareRows=[]
+  heading="Transportation summary",destination=null,routeContext=null,overview=null,rows=[],metrics=[],notes=[],fareRows=[]
 }={}){
   if(!rows.length||metrics.length!==4)
     throw Error("A transportation approval needs a complete leg summary.");
@@ -103,7 +158,13 @@ export function renderNavigationTransportApproval({
   const root=el("div");
   root.className="atlas-transport-approval";
   root.append(el("h3",heading));
-  if(destination)root.append(el("p",destination));
+  if(routeContext)root.append(renderNavigationRouteContext(routeContext));
+  else if(destination)root.append(el("p",destination));
+  if(overview){
+    const counts=el("p",overview);
+    counts.className="atlas-transport-approval-overview";
+    root.append(counts);
+  }
   const table=el("table");
   table.className="atlas-transport-approval-table";
   const head=el("thead"),labels=el("tr");
@@ -116,8 +177,16 @@ export function renderNavigationTransportApproval({
   const body=el("tbody");
   for(const data of rows){
     const row=el("tr");
-    for(const value of [data.method,data.travelers,data.units,data.cost])
-      row.append(el("td",String(value??"—")));
+    row.append(el("td",String(data.method??"—")));
+    const travelers=el("td");
+    if(Number.isInteger(data.travelerCount)&&data.travelerCount>1){
+      const detail=el("details");
+      detail.className="atlas-transport-approval-roster";
+      detail.append(el("summary",data.travelerCount+" travelers"),
+        el("div",String(data.travelers??"—")));
+      travelers.append(detail);
+    }else travelers.textContent=String(data.travelers??"—");
+    row.append(travelers,el("td",String(data.units??"—")),el("td",String(data.cost??"—")));
     body.append(row);
   }
   table.append(body);root.append(table);
@@ -146,4 +215,19 @@ export function renderNavigationTransportApproval({
   }
   wrapper.append(root);
   return wrapper;
+}
+
+/** Counts come from the approved unit and livestock manifests, never from
+ * parsing display names or estimating the Group again. */
+export function describeOwnedApprovalOverview(travelers,approval,livestock){
+  if(!approval)return null;
+  const mounts=livestock?.resources?.reduce((n,item)=>n+item.aboard,0)??0;
+  const count=approval.units.length,unit=approval.surface==="water"?"vessel":"vehicle";
+  return travelers+" "+(travelers===1?"traveler":"travelers")+" · "+
+    approval.passengerSeats+" "+(approval.passengerSeats===1?"seat":"seats")+" · "+
+    mounts+" "+(mounts===1?"mount":"mounts")+" · "+count+" "+unit+(count===1?"":"s");
+}
+
+export function navigationApprovalPosition(){
+  return {width:Math.min(720,Math.max(280,(globalThis.window?.innerWidth??800)-40))};
 }
